@@ -1,5 +1,5 @@
 [package]
-name = "mangrove-rs2"
+name = "mangrove-rs"
 version = "0.1.0"
 edition = "2021"
 
