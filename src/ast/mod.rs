@@ -1,12 +1,19 @@
+#[derive(Debug, Clone)]
+pub enum ASTFunctionCallArg {
+	Char(char),
+	Int32(i32),
+	String(String),
+}
+
 #[derive(Debug)]
 pub struct ASTFunctionCall {
 	pub name: String,
-	pub arg: String,
+	pub args: Vec<ASTFunctionCallArg>,
 }
 
 impl ASTFunctionCall {
-	pub fn new(name: String, arg: String) -> Self {
-		Self { name, arg }
+	pub fn new(name: String, args: Vec<ASTFunctionCallArg>) -> Self {
+		Self { name, args }
 	}
 }
 
