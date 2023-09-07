@@ -1,9 +1,48 @@
-use crate::ast::ASTFunction;
+use crate::ast::{ASTFunction, ASTFunctionCallArg};
+
+impl ASTFunctionCallArg {}
 
 #[derive(Debug, Clone)]
 pub struct GlobalData {
 	start: i32,
-	data: String,
+	data: ASTFunctionCallArg,
+}
+
+impl GlobalData {
+	fn data_size(&self) -> usize {
+		match &self.data {
+			ASTFunctionCallArg::Char(_) => 4,
+			ASTFunctionCallArg::Int32(_) => 4,
+			ASTFunctionCallArg::String(s) => s.len(),
+		}
+	}
+
+	fn is_global(&self) -> bool {
+		match &self.data {
+			ASTFunctionCallArg::String(s) => true,
+			_ => false,
+		}
+	}
+
+	fn function_arg(&self) -> String {
+		match &self.data {
+			ASTFunctionCallArg::Char(v) => format!("(i32.const {})", *v as i32),
+			ASTFunctionCallArg::Int32(v) => format!("(i32.const {v})"),
+			ASTFunctionCallArg::String(s) => {
+				format!("(i32.const {}) (i32.const {})", self.start, s.len())
+			}
+		}
+	}
+
+	fn data_value(&self) -> String {
+		match &self.data {
+			ASTFunctionCallArg::Char(v) => format!("{}", *v as i32),
+			ASTFunctionCallArg::Int32(v) => format!("{v}"),
+			ASTFunctionCallArg::String(s) => {
+				format!("\"{}\"", s.replace("\n", "\\n"))
+			}
+		}
+	}
 }
 
 #[derive(Debug)]
@@ -21,21 +60,31 @@ impl Compiler {
 	}
 
 	/// Add data and return the created item
-	fn add_data(global_data: &mut Vec<GlobalData>, data: &str) -> GlobalData {
+	fn add_data(global_data: &mut Vec<GlobalData>, data: ASTFunctionCallArg) -> GlobalData {
 		// first 4096 bytes are reserved for internal functions
 		let start = if global_data.len() == 0 {
 			4096
 		} else {
 			let last = global_data.last().unwrap();
-			last.start + last.data.len() as i32
+			last.start + last.data_size() as i32
 		};
 
 		// TODO: properly replace literals
-		let data: String = data.replace("\n", "\\n");
+		// let data: String = data.replace("\n", "\\n");
 		let new_data = GlobalData { start, data };
 
 		global_data.push(new_data.clone());
 		new_data
+	}
+
+	fn compile_args(global_data: &mut Vec<GlobalData>, args: &Vec<ASTFunctionCallArg>) -> String {
+		let mut arg_str = String::new();
+		for arg in args {
+			let data = Self::add_data(global_data, arg.clone());
+			arg_str.push_str(&data.function_arg())
+		}
+
+		arg_str
 	}
 
 	pub fn compile(&mut self) -> String {
@@ -45,13 +94,8 @@ impl Compiler {
 		for function in &self.ast {
 			functions.push_str(&format!("(func ${}\n", function.name));
 			for call in &function.body.statements {
-				let data = Self::add_data(&mut global_data, &call.arg);
-				functions.push_str(&format!(
-					"(call ${} (i32.const {}) (i32.const {}))\n",
-					call.name,
-					data.start,
-					data.data.len()
-				));
+				let args = Self::compile_args(&mut global_data, &call.args);
+				functions.push_str(&format!("(call ${} {})\n", call.name, args));
 			}
 
 			functions.push(')');
@@ -59,7 +103,8 @@ impl Compiler {
 
 		let data: Vec<String> = global_data
 			.iter()
-			.map(|gd| format!("(data (i32.const {}) \"{}\")", gd.start, gd.data))
+			.filter(|gd| gd.is_global())
+			.map(|gd| format!("(data (i32.const {}) {})", gd.start, gd.data_value()))
 			.collect();
 		let data = data.join("\n");
 
@@ -69,6 +114,8 @@ impl Compiler {
 		(module
 			;; Internal functions
 			;; TODO: only import required ones
+			(import \"internals\" \"__print_char\" (func $__print_char (param i32)))
+			(import \"internals\" \"__print_int\" (func $__print_int (param i32)))
 			(import \"internals\" \"__print_str\" (func $__print_str (param i32) (param i32)))
 			;; shared internal memory
 			(import \"internals\" \"memory\" (memory 0))
