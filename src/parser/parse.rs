@@ -37,7 +37,8 @@ impl Parser {
 				TokenType::IntLit => {
 					args.push(ASTFunctionCallArg::Int32(arg.value().parse().unwrap()))
 				}
-				_ => unimplemented!(),
+				TokenType::Comma => (),
+				_ => unimplemented!("{arg:#?}"),
 			}
 			arg = self.skip_white().unwrap();
 		}
