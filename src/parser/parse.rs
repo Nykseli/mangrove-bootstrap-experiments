@@ -1,4 +1,4 @@
-use crate::ast::{ASTBlock, ASTFunction, ASTFunctionCall};
+use crate::ast::{ASTBlock, ASTFunction, ASTFunctionCall, ASTFunctionCallArg};
 
 use super::tokeniser::Tokeniser;
 use super::types::{Token, TokenType};
@@ -26,17 +26,27 @@ impl Parser {
 			panic!("Expected left paren");
 		}
 
-		let arg = self.skip_white().unwrap();
-		if arg.type_() != TokenType::StringLit {
-			panic!("Expected string literal argument");
+		let mut args = Vec::<ASTFunctionCallArg>::new();
+		let mut arg = self.skip_white().unwrap();
+		while arg.type_() != TokenType::RightParen {
+			match arg.type_() {
+				TokenType::StringLit => args.push(ASTFunctionCallArg::String(arg.value().into())),
+				TokenType::CharLit => args.push(ASTFunctionCallArg::Char(
+					arg.value().chars().next().unwrap(),
+				)),
+				TokenType::IntLit => {
+					args.push(ASTFunctionCallArg::Int32(arg.value().parse().unwrap()))
+				}
+				_ => unimplemented!(),
+			}
+			arg = self.skip_white().unwrap();
 		}
 
-		let right_paren = self.skip_white().unwrap();
-		if right_paren.type_() != TokenType::RightParen {
+		if arg.type_() != TokenType::RightParen {
 			panic!("Expected right paren");
 		}
 
-		ASTFunctionCall::new(name.into(), arg.value().into())
+		ASTFunctionCall::new(name.into(), args)
 	}
 
 	fn parse_block(&mut self) -> ASTBlock {
