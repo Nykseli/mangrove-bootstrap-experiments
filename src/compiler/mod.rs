@@ -21,7 +21,21 @@ impl ASTAssignmentExpr {
 			}
 			ASTAssignmentExpr::FunctionCall(func) => {
 				// There's no args at this point
-				format!("(call ${})\n", func.name)
+				let mut arg_str = String::new();
+				for arg in &func.args {
+					let arg_fmt = match &arg {
+						ASTFunctionCallArg::Char(v) => format!("(i32.const {})", *v as i32),
+						ASTFunctionCallArg::Int32(v) => format!("(i32.const {v})"),
+						ASTFunctionCallArg::String(s) => {
+							/* format!("(i32.const {}) (i32.const {})", self.start, s.len()) */
+							"".into()
+						}
+						ASTFunctionCallArg::Ident(i) => format!("(get_local ${i})"),
+					};
+					arg_str.push_str(&arg_fmt);
+				}
+
+				format!("(call ${} {})\n", func.name, arg_str)
 			}
 		}
 	}
@@ -183,14 +197,31 @@ impl Compiler {
 		let mut global_data: Vec<GlobalData> = Vec::new();
 
 		for function in &self.ast {
+			let mut variables = String::new();
+			let mut body = String::new();
+
 			instructions.push_str(&format!("(func ${}", function.name));
+			if function.args.len() > 0 {
+				instructions.push_str("(param");
+				for _ in &function.args {
+					instructions.push_str(" i32");
+				}
+				instructions.push(')');
+			}
+
 			if function.returns {
 				instructions.push_str("(result i32)\n");
 			} else {
 				instructions.push('\n');
 			}
-			let mut variables = String::new();
-			let mut body = String::new();
+
+			if function.args.len() > 0 {
+				for (idx, name) in function.args.iter().enumerate() {
+					body.push_str(&format!("(set_local ${} (local.get {}))\n", name, idx));
+					variables.push_str(&format!("(local ${} i32)\n", name));
+				}
+			}
+
 			for block in &function.body.statements {
 				match block {
 					ASTBlockStatement::Assignment(assign) => {
