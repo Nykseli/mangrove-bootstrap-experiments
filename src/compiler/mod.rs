@@ -19,6 +19,10 @@ impl ASTAssignmentExpr {
 			ASTAssignmentExpr::Add(val) => {
 				format!("(i32.add {} {})", val.lhs.compile(), val.rhs.compile())
 			}
+			ASTAssignmentExpr::FunctionCall(func) => {
+				// There's no args at this point
+				format!("(call ${})\n", func.name)
+			}
 		}
 	}
 }
@@ -179,7 +183,12 @@ impl Compiler {
 		let mut global_data: Vec<GlobalData> = Vec::new();
 
 		for function in &self.ast {
-			instructions.push_str(&format!("(func ${}\n", function.name));
+			instructions.push_str(&format!("(func ${}", function.name));
+			if function.returns {
+				instructions.push_str("(result i32)\n");
+			} else {
+				instructions.push('\n');
+			}
 			let mut variables = String::new();
 			let mut body = String::new();
 			for block in &function.body.statements {
@@ -201,6 +210,9 @@ impl Compiler {
 							let args = Self::compile_args(&mut global_data, &call.args);
 							body.push_str(&format!("(call ${} {})\n", call.name, args));
 						}
+					}
+					ASTBlockStatement::Return(stmt) => {
+						body.push_str(&format!("(return {})\n", stmt.expr.compile()))
 					}
 				}
 			}
