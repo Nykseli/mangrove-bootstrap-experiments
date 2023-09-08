@@ -10,11 +10,17 @@ pub enum ASTFunctionCallArg {
 pub struct ASTFunctionCall {
 	pub name: String,
 	pub args: Vec<ASTFunctionCallArg>,
+	/// is return value used somewhere
+	pub return_used: bool,
 }
 
 impl ASTFunctionCall {
-	pub fn new(name: String, args: Vec<ASTFunctionCallArg>) -> Self {
-		Self { name, args }
+	pub fn new(name: String, args: Vec<ASTFunctionCallArg>, return_used: bool) -> Self {
+		Self {
+			name,
+			args,
+			return_used,
+		}
 	}
 }
 
@@ -35,6 +41,7 @@ pub enum ASTAssignmentExpr {
 	/// Single value
 	Arg(ASTAssignArg),
 	Add(ASTAdd),
+	FunctionCall(ASTFunctionCall),
 }
 
 #[derive(Debug)]
@@ -48,6 +55,7 @@ pub struct ASTAssignment {
 pub enum ASTBlockStatement {
 	Assignment(ASTAssignment),
 	FunctionCall(ASTFunctionCall),
+	Return(ASTReturn),
 }
 
 #[derive(Debug)]
@@ -62,13 +70,25 @@ impl ASTBlock {
 }
 
 #[derive(Debug)]
+pub struct ASTReturn {
+	// TODO: refactor the type name
+	pub expr: ASTAssignmentExpr,
+}
+
+#[derive(Debug)]
 pub struct ASTFunction {
 	pub name: String,
 	pub body: ASTBlock,
+	/// Only none and Int32 are supported
+	pub returns: bool,
 }
 
 impl ASTFunction {
-	pub fn new(name: String, body: ASTBlock) -> Self {
-		Self { name, body }
+	pub fn new(name: String, body: ASTBlock, returns: bool) -> Self {
+		Self {
+			name,
+			body,
+			returns,
+		}
 	}
 }
