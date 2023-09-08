@@ -1,5 +1,6 @@
 use crate::ast::{
-	ASTAssignment, ASTBlock, ASTBlockStatement, ASTFunction, ASTFunctionCall, ASTFunctionCallArg,
+	ASTAdd, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement, ASTFunction,
+	ASTFunctionCall, ASTFunctionCallArg,
 };
 
 use super::tokeniser::Tokeniser;
@@ -19,6 +20,17 @@ impl Parser {
 		while next.type_() == TokenType::Whitespace || next.type_() == TokenType::Newline {
 			next = self.lexer.next_token().unwrap();
 		}
+		Ok(next)
+	}
+
+	fn skip_white_peek(&mut self) -> Result<Token, ()> {
+		let mut peek_idx = 1;
+		let mut next = self.lexer.peek_token(peek_idx).unwrap();
+		while next.type_() == TokenType::Whitespace || next.type_() == TokenType::Newline {
+			next = self.lexer.peek_token(peek_idx).unwrap();
+			peek_idx += 1;
+		}
+
 		Ok(next)
 	}
 
@@ -66,8 +78,24 @@ impl Parser {
 			_ => unimplemented!("{value:#?}"),
 		};
 
+		let peek = self.skip_white_peek().unwrap();
+		let expr = match peek.type_() {
+			TokenType::AddOp => {
+				// Skip the OpToken
+				self.skip_white().unwrap();
+				// get the assignment
+				let rhs = self.skip_white().unwrap();
+				let rhs = match rhs.type_() {
+					TokenType::IntLit => rhs.value().parse::<i32>().unwrap(),
+					_ => unimplemented!("{rhs:#?}"),
+				};
+				ASTAssignmentExpr::Add(ASTAdd { lhs: value, rhs })
+			}
+			_ => ASTAssignmentExpr::Int32(value),
+		};
+
 		ASTAssignment {
-			value,
+			expr,
 			type_name: type_token.value().into(),
 			ident: ident.value().into(),
 		}

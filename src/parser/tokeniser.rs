@@ -74,6 +74,34 @@ impl Tokeniser {
 		}
 	}
 
+	pub fn peek_token(&mut self, count: usize) -> TokenResult<Token> {
+		let current_char = self.current_char;
+		let read_pos = self.read_pos;
+		let position = self.position.clone();
+		let eof = self.eof;
+
+		for _ in 0..count - 1 {
+			if self.eof {
+				return self.gen_token(TokenType::Eof);
+			} else {
+				self.read_token().unwrap();
+			}
+		}
+
+		let copy = if self.eof {
+			self.gen_token(TokenType::Eof)
+		} else {
+			self.read_token()
+		};
+
+		self.current_char = current_char;
+		self.read_pos = read_pos;
+		self.position = position;
+		self.eof = eof;
+
+		copy
+	}
+
 	fn peek_char(&self) -> TokenResult<char> {
 		if self.read_pos + 1 >= self.file.len() {
 			return Err(());
