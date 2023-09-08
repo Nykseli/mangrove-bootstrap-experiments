@@ -91,16 +91,8 @@ impl Parser {
 			TokenType::LeftParen => {
 				// Skip the LeftParen
 				self.skip_white().unwrap();
-				// TODO: args
-				let right_paren = self.skip_white().unwrap();
-				if right_paren.type_() != TokenType::RightParen {
-					panic!("Expected right paren");
-				}
-				ASTAssignmentExpr::FunctionCall(ASTFunctionCall::new(
-					value_token.value().into(),
-					vec![],
-					true,
-				))
+				let fn_call = self.parse_function_call(value_token.value(), true);
+				ASTAssignmentExpr::FunctionCall(fn_call)
 			}
 			_ => ASTAssignmentExpr::Arg(value),
 		};
@@ -179,9 +171,26 @@ impl Parser {
 			panic!("Expected left paren {left_paren:#?}");
 		}
 
-		let right_paren = self.skip_white().unwrap();
-		if right_paren.type_() != TokenType::RightParen {
-			panic!("Expected right paren");
+		let mut args: Vec<String> = Vec::new();
+		let mut ident = self.skip_white().unwrap();
+		while ident.type_() != TokenType::RightParen {
+			// We don't need the type right now so just ignore it
+			if ident.type_() != TokenType::Ident || ident.value() != "Int32" {
+				panic!("Expected Int32 type function argument {ident:#?}");
+			}
+
+			ident = self.skip_white().unwrap();
+			if ident.type_() != TokenType::Ident {
+				panic!("Expected identfier");
+			}
+
+			args.push(ident.value().into());
+
+			// Parse, but ignore commas
+			ident = self.skip_white().unwrap();
+			if ident.type_() == TokenType::Comma {
+				ident = self.skip_white().unwrap();
+			}
 		}
 
 		let arrow = self.skip_white().unwrap();
@@ -199,7 +208,7 @@ impl Parser {
 
 		let body = self.parse_block();
 
-		ASTFunction::new(name.into(), body, returns)
+		ASTFunction::new(name.into(), args, body, returns)
 	}
 
 	pub fn parse(&mut self) -> Vec<ASTFunction> {
