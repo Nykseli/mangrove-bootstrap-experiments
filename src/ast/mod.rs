@@ -19,14 +19,21 @@ impl ASTFunctionCall {
 }
 
 #[derive(Debug)]
+pub enum ASTAssignArg {
+	Int32(i32),
+	Ident(String),
+}
+
+#[derive(Debug)]
 pub struct ASTAdd {
-	pub rhs: i32,
-	pub lhs: i32,
+	pub rhs: ASTAssignArg,
+	pub lhs: ASTAssignArg,
 }
 
 #[derive(Debug)]
 pub enum ASTAssignmentExpr {
-	Int32(i32),
+	/// Single value
+	Arg(ASTAssignArg),
 	Add(ASTAdd),
 }
 
