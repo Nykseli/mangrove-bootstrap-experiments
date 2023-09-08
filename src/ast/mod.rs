@@ -3,6 +3,7 @@ pub enum ASTFunctionCallArg {
 	Char(char),
 	Int32(i32),
 	String(String),
+	Ident(String),
 }
 
 #[derive(Debug)]
@@ -18,12 +19,25 @@ impl ASTFunctionCall {
 }
 
 #[derive(Debug)]
+pub struct ASTAssignment {
+	pub type_name: String,
+	pub ident: String,
+	pub value: i32,
+}
+
+#[derive(Debug)]
+pub enum ASTBlockStatement {
+	Assignment(ASTAssignment),
+	FunctionCall(ASTFunctionCall),
+}
+
+#[derive(Debug)]
 pub struct ASTBlock {
-	pub statements: Vec<ASTFunctionCall>,
+	pub statements: Vec<ASTBlockStatement>,
 }
 
 impl ASTBlock {
-	pub fn new(statements: Vec<ASTFunctionCall>) -> Self {
+	pub fn new(statements: Vec<ASTBlockStatement>) -> Self {
 		Self { statements }
 	}
 }
