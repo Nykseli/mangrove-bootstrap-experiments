@@ -1,6 +1,6 @@
 use crate::ast::{
-	ASTAdd, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement, ASTFunction,
-	ASTFunctionCall, ASTFunctionCallArg,
+	ASTAdd, ASTAssignArg, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement,
+	ASTFunction, ASTFunctionCall, ASTFunctionCallArg,
 };
 
 use super::tokeniser::Tokeniser;
@@ -74,7 +74,8 @@ impl Parser {
 
 		let value = self.skip_white().unwrap();
 		let value = match value.type_() {
-			TokenType::IntLit => value.value().parse::<i32>().unwrap(),
+			TokenType::IntLit => ASTAssignArg::Int32(value.value().parse::<i32>().unwrap()),
+			TokenType::Ident => ASTAssignArg::Ident(value.value().into()),
 			_ => unimplemented!("{value:#?}"),
 		};
 
@@ -86,12 +87,13 @@ impl Parser {
 				// get the assignment
 				let rhs = self.skip_white().unwrap();
 				let rhs = match rhs.type_() {
-					TokenType::IntLit => rhs.value().parse::<i32>().unwrap(),
+					TokenType::IntLit => ASTAssignArg::Int32(rhs.value().parse::<i32>().unwrap()),
+					TokenType::Ident => ASTAssignArg::Ident(rhs.value().into()),
 					_ => unimplemented!("{rhs:#?}"),
 				};
 				ASTAssignmentExpr::Add(ASTAdd { lhs: value, rhs })
 			}
-			_ => ASTAssignmentExpr::Int32(value),
+			_ => ASTAssignmentExpr::Arg(value),
 		};
 
 		ASTAssignment {
