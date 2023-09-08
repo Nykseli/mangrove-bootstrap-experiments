@@ -78,15 +78,18 @@ pub struct ASTReturn {
 #[derive(Debug)]
 pub struct ASTFunction {
 	pub name: String,
+	/// Int32 arguments
+	pub args: Vec<String>,
 	pub body: ASTBlock,
 	/// Only none and Int32 are supported
 	pub returns: bool,
 }
 
 impl ASTFunction {
-	pub fn new(name: String, body: ASTBlock, returns: bool) -> Self {
+	pub fn new(name: String, args: Vec<String>, body: ASTBlock, returns: bool) -> Self {
 		Self {
 			name,
+			args,
 			body,
 			returns,
 		}
