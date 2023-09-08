@@ -1,4 +1,4 @@
-use crate::ast::{ASTFunction, ASTFunctionCallArg};
+use crate::ast::{ASTFunction, ASTFunctionCall, ASTFunctionCallArg};
 
 impl ASTFunctionCallArg {}
 
@@ -87,6 +87,66 @@ impl Compiler {
 		arg_str
 	}
 
+	fn is_special_function(function: &ASTFunctionCall) -> bool {
+		function.name == "__print_format"
+	}
+
+	fn compile_special_function(
+		global_data: &mut Vec<GlobalData>,
+		args: &Vec<ASTFunctionCallArg>,
+	) -> String {
+		let mut function = String::new();
+
+		if args.is_empty() {
+			panic!("__print_format requires at least 1 argument");
+		}
+
+		let format_arg = if let ASTFunctionCallArg::String(s) = &args[0] {
+			s
+		} else {
+			panic!("__print_format's first argument needs to be a static string");
+		};
+
+		let mut format = &format_arg[..];
+		let mut arg_idx: usize = 1;
+		let mut str_buf = String::new();
+		while !format.is_empty() {
+			if format.starts_with("{}") {
+				// Print the current string
+				let data = Self::add_data(global_data, ASTFunctionCallArg::String(str_buf));
+				str_buf = String::new();
+				function.push_str(&format!("(call $__print_str {})\n", data.function_arg()));
+
+				// Print the argument
+				let arg = &args[arg_idx];
+				match arg {
+					ASTFunctionCallArg::Char(c) => function
+						.push_str(&format!("(call $__print_char (i32.const {}))\n", *c as i32)),
+					ASTFunctionCallArg::Int32(val) => {
+						function.push_str(&format!("(call $__print_int (i32.const {}))\n", val))
+					}
+					ASTFunctionCallArg::String(_) => {
+						let data = Self::add_data(global_data, arg.clone());
+						function.push_str(&format!("(call $__print_str {})\n", data.function_arg()))
+					}
+				}
+
+				format = &format[2..];
+				arg_idx += 1;
+			} else {
+				str_buf.push_str(&format[0..1]);
+				format = &format[1..];
+			}
+		}
+
+		if !str_buf.is_empty() {
+			let data = Self::add_data(global_data, ASTFunctionCallArg::String(str_buf));
+			function.push_str(&format!("(call $__print_str {})\n", data.function_arg()));
+		}
+
+		function
+	}
+
 	pub fn compile(&mut self) -> String {
 		let mut functions = String::new();
 		let mut global_data: Vec<GlobalData> = Vec::new();
@@ -94,8 +154,13 @@ impl Compiler {
 		for function in &self.ast {
 			functions.push_str(&format!("(func ${}\n", function.name));
 			for call in &function.body.statements {
-				let args = Self::compile_args(&mut global_data, &call.args);
-				functions.push_str(&format!("(call ${} {})\n", call.name, args));
+				if Self::is_special_function(call) {
+					let special = Self::compile_special_function(&mut global_data, &call.args);
+					functions.push_str(&special);
+				} else {
+					let args = Self::compile_args(&mut global_data, &call.args);
+					functions.push_str(&format!("(call ${} {})\n", call.name, args));
+				}
 			}
 
 			functions.push(')');
