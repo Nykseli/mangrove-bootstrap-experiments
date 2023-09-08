@@ -1,6 +1,6 @@
 use crate::ast::{
 	ASTAdd, ASTAssignArg, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement,
-	ASTFunction, ASTFunctionCall, ASTFunctionCallArg,
+	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTReturn,
 };
 
 use super::tokeniser::Tokeniser;
@@ -34,7 +34,7 @@ impl Parser {
 		Ok(next)
 	}
 
-	fn parse_function_call(&mut self, name: &str) -> ASTFunctionCall {
+	fn parse_function_call(&mut self, name: &str, used: bool) -> ASTFunctionCall {
 		// left paren is handled by parse_block for now
 		/* let left_paren = self.skip_white().unwrap();
 		if left_paren.type_() != TokenType::LeftParen {
@@ -63,20 +63,15 @@ impl Parser {
 			panic!("Expected right paren");
 		}
 
-		ASTFunctionCall::new(name.into(), args)
+		ASTFunctionCall::new(name.into(), args, used)
 	}
 
-	fn parse_assignment(&mut self, type_token: Token, ident: Token) -> ASTAssignment {
-		let assign = self.skip_white().unwrap();
-		if assign.type_() != TokenType::AssignOp {
-			panic!("Expected assign Op {assign:#?}");
-		}
-
-		let value = self.skip_white().unwrap();
-		let value = match value.type_() {
-			TokenType::IntLit => ASTAssignArg::Int32(value.value().parse::<i32>().unwrap()),
-			TokenType::Ident => ASTAssignArg::Ident(value.value().into()),
-			_ => unimplemented!("{value:#?}"),
+	fn parse_assign_expr(&mut self) -> ASTAssignmentExpr {
+		let value_token = self.skip_white().unwrap();
+		let value = match value_token.type_() {
+			TokenType::IntLit => ASTAssignArg::Int32(value_token.value().parse::<i32>().unwrap()),
+			TokenType::Ident => ASTAssignArg::Ident(value_token.value().into()),
+			_ => unimplemented!("{value_token:#?}"),
 		};
 
 		let peek = self.skip_white_peek().unwrap();
@@ -93,14 +88,44 @@ impl Parser {
 				};
 				ASTAssignmentExpr::Add(ASTAdd { lhs: value, rhs })
 			}
+			TokenType::LeftParen => {
+				// Skip the LeftParen
+				self.skip_white().unwrap();
+				// TODO: args
+				let right_paren = self.skip_white().unwrap();
+				if right_paren.type_() != TokenType::RightParen {
+					panic!("Expected right paren");
+				}
+				ASTAssignmentExpr::FunctionCall(ASTFunctionCall::new(
+					value_token.value().into(),
+					vec![],
+					true,
+				))
+			}
 			_ => ASTAssignmentExpr::Arg(value),
 		};
+
+		expr
+	}
+
+	fn parse_assignment(&mut self, type_token: Token, ident: Token) -> ASTAssignment {
+		let assign = self.skip_white().unwrap();
+		if assign.type_() != TokenType::AssignOp {
+			panic!("Expected assign Op {assign:#?}");
+		}
+
+		let expr = self.parse_assign_expr();
 
 		ASTAssignment {
 			expr,
 			type_name: type_token.value().into(),
 			ident: ident.value().into(),
 		}
+	}
+
+	fn parse_return_statement(&mut self) -> ASTReturn {
+		let expr = self.parse_assign_expr();
+		ASTReturn { expr }
 	}
 
 	fn parse_block(&mut self) -> ASTBlock {
@@ -116,10 +141,10 @@ impl Parser {
 				break;
 			}
 
-			let next = self.skip_white().unwrap();
 			if statement.type_() == TokenType::Ident {
+				let next = self.skip_white().unwrap();
 				if next.type_() == TokenType::LeftParen {
-					let fn_call = self.parse_function_call(statement.value());
+					let fn_call = self.parse_function_call(statement.value(), false);
 					statements.push(ASTBlockStatement::FunctionCall(fn_call));
 				} else if next.type_() == TokenType::Ident {
 					// TODO: Also parse the type
@@ -128,6 +153,11 @@ impl Parser {
 				} else {
 					panic!("Expected left paren or identifier")
 				}
+			} else if statement.type_() == TokenType::ReturnStmt {
+				let return_stmt = self.parse_return_statement();
+				statements.push(ASTBlockStatement::Return(return_stmt))
+			} else {
+				panic!("Expected identifier got: {statement:#?}")
 			};
 
 			statement = self.skip_white().unwrap();
@@ -154,9 +184,22 @@ impl Parser {
 			panic!("Expected right paren");
 		}
 
+		let arrow = self.skip_white().unwrap();
+		if arrow.type_() != TokenType::Arrow {
+			panic!("Expected arrow");
+		}
+
+		let return_type = self.skip_white().unwrap();
+		let returns = match return_type.type_() {
+			TokenType::NoneType => false,
+			/// Just assuming that it's Int32
+			TokenType::Ident => true,
+			_ => panic!("Didn't expect {return_type:#?}"),
+		};
+
 		let body = self.parse_block();
 
-		ASTFunction::new(name.into(), body)
+		ASTFunction::new(name.into(), body, returns)
 	}
 
 	pub fn parse(&mut self) -> Vec<ASTFunction> {
