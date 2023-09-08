@@ -1,13 +1,23 @@
 use crate::ast::{
-	ASTAssignmentExpr, ASTBlockStatement, ASTFunction, ASTFunctionCall, ASTFunctionCallArg,
+	ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTFunction, ASTFunctionCall,
+	ASTFunctionCallArg,
 };
+
+impl ASTAssignArg {
+	fn compile(&self) -> String {
+		match self {
+			ASTAssignArg::Int32(val) => format!("(i32.const {val})"),
+			ASTAssignArg::Ident(s) => format!("(get_local ${s})"),
+		}
+	}
+}
 
 impl ASTAssignmentExpr {
 	fn compile(&self) -> String {
 		match self {
-			ASTAssignmentExpr::Int32(val) => format!("(i32.const {})", val),
+			ASTAssignmentExpr::Arg(arg) => arg.compile(),
 			ASTAssignmentExpr::Add(val) => {
-				format!("(i32.add (i32.const {}) (i32.const {}))", val.lhs, val.rhs)
+				format!("(i32.add {} {})", val.lhs.compile(), val.rhs.compile())
 			}
 		}
 	}
