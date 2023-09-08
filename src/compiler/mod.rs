@@ -1,4 +1,4 @@
-use crate::ast::{ASTFunction, ASTFunctionCall, ASTFunctionCallArg};
+use crate::ast::{ASTBlockStatement, ASTFunction, ASTFunctionCall, ASTFunctionCallArg};
 
 impl ASTFunctionCallArg {}
 
@@ -13,6 +13,7 @@ impl GlobalData {
 		match &self.data {
 			ASTFunctionCallArg::Char(_) => 4,
 			ASTFunctionCallArg::Int32(_) => 4,
+			ASTFunctionCallArg::Ident(_) => 4,
 			ASTFunctionCallArg::String(s) => s.len(),
 		}
 	}
@@ -31,6 +32,7 @@ impl GlobalData {
 			ASTFunctionCallArg::String(s) => {
 				format!("(i32.const {}) (i32.const {})", self.start, s.len())
 			}
+			ASTFunctionCallArg::Ident(i) => format!("(get_local ${i})"),
 		}
 	}
 
@@ -41,6 +43,7 @@ impl GlobalData {
 			ASTFunctionCallArg::String(s) => {
 				format!("\"{}\"", s.replace("\n", "\\n"))
 			}
+			ASTFunctionCallArg::Ident(i) => format!("(${i})"),
 		}
 	}
 }
@@ -129,6 +132,9 @@ impl Compiler {
 						let data = Self::add_data(global_data, arg.clone());
 						function.push_str(&format!("(call $__print_str {})\n", data.function_arg()))
 					}
+					ASTFunctionCallArg::Ident(ident) => {
+						function.push_str(&format!("(call $__print_int (get_local ${ident}))\n"))
+					}
 				}
 
 				format = &format[2..];
@@ -148,22 +154,38 @@ impl Compiler {
 	}
 
 	pub fn compile(&mut self) -> String {
-		let mut functions = String::new();
+		let mut instructions = String::new();
 		let mut global_data: Vec<GlobalData> = Vec::new();
 
 		for function in &self.ast {
-			functions.push_str(&format!("(func ${}\n", function.name));
-			for call in &function.body.statements {
-				if Self::is_special_function(call) {
-					let special = Self::compile_special_function(&mut global_data, &call.args);
-					functions.push_str(&special);
-				} else {
-					let args = Self::compile_args(&mut global_data, &call.args);
-					functions.push_str(&format!("(call ${} {})\n", call.name, args));
+			instructions.push_str(&format!("(func ${}\n", function.name));
+			let mut variables = String::new();
+			let mut body = String::new();
+			for block in &function.body.statements {
+				match block {
+					ASTBlockStatement::Assignment(assign) => {
+						variables.push_str(&format!("(local ${} i32)\n", assign.ident));
+						body.push_str(&format!(
+							"(set_local ${} (i32.const {}))\n",
+							assign.ident, assign.value
+						));
+					}
+					ASTBlockStatement::FunctionCall(call) => {
+						if Self::is_special_function(call) {
+							let special =
+								Self::compile_special_function(&mut global_data, &call.args);
+							body.push_str(&special);
+						} else {
+							let args = Self::compile_args(&mut global_data, &call.args);
+							body.push_str(&format!("(call ${} {})\n", call.name, args));
+						}
+					}
 				}
 			}
 
-			functions.push(')');
+			instructions.push_str(&variables);
+			instructions.push_str(&body);
+			instructions.push(')');
 		}
 
 		let data: Vec<String> = global_data
@@ -195,7 +217,7 @@ impl Compiler {
 			(export \"main\" (func $main))
 		)
 			",
-			data, functions
+			data, instructions
 		)
 	}
 }
