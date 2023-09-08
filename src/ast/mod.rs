@@ -19,10 +19,22 @@ impl ASTFunctionCall {
 }
 
 #[derive(Debug)]
+pub struct ASTAdd {
+	pub rhs: i32,
+	pub lhs: i32,
+}
+
+#[derive(Debug)]
+pub enum ASTAssignmentExpr {
+	Int32(i32),
+	Add(ASTAdd),
+}
+
+#[derive(Debug)]
 pub struct ASTAssignment {
 	pub type_name: String,
 	pub ident: String,
-	pub value: i32,
+	pub expr: ASTAssignmentExpr,
 }
 
 #[derive(Debug)]
