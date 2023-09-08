@@ -1,6 +1,17 @@
-use crate::ast::{ASTBlockStatement, ASTFunction, ASTFunctionCall, ASTFunctionCallArg};
+use crate::ast::{
+	ASTAssignmentExpr, ASTBlockStatement, ASTFunction, ASTFunctionCall, ASTFunctionCallArg,
+};
 
-impl ASTFunctionCallArg {}
+impl ASTAssignmentExpr {
+	fn compile(&self) -> String {
+		match self {
+			ASTAssignmentExpr::Int32(val) => format!("(i32.const {})", val),
+			ASTAssignmentExpr::Add(val) => {
+				format!("(i32.add (i32.const {}) (i32.const {}))", val.lhs, val.rhs)
+			}
+		}
+	}
+}
 
 #[derive(Debug, Clone)]
 pub struct GlobalData {
@@ -166,8 +177,9 @@ impl Compiler {
 					ASTBlockStatement::Assignment(assign) => {
 						variables.push_str(&format!("(local ${} i32)\n", assign.ident));
 						body.push_str(&format!(
-							"(set_local ${} (i32.const {}))\n",
-							assign.ident, assign.value
+							"(set_local ${} {})\n",
+							assign.ident,
+							assign.expr.compile()
 						));
 					}
 					ASTBlockStatement::FunctionCall(call) => {
