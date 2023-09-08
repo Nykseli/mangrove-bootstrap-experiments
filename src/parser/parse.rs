@@ -1,4 +1,6 @@
-use crate::ast::{ASTBlock, ASTFunction, ASTFunctionCall, ASTFunctionCallArg};
+use crate::ast::{
+	ASTAssignment, ASTBlock, ASTBlockStatement, ASTFunction, ASTFunctionCall, ASTFunctionCallArg,
+};
 
 use super::tokeniser::Tokeniser;
 use super::types::{Token, TokenType};
@@ -21,10 +23,11 @@ impl Parser {
 	}
 
 	fn parse_function_call(&mut self, name: &str) -> ASTFunctionCall {
-		let left_paren = self.skip_white().unwrap();
+		// left paren is handled by parse_block for now
+		/* let left_paren = self.skip_white().unwrap();
 		if left_paren.type_() != TokenType::LeftParen {
-			panic!("Expected left paren");
-		}
+			panic!("Expected left paren {left_paren:#?}");
+		} */
 
 		let mut args = Vec::<ASTFunctionCallArg>::new();
 		let mut arg = self.skip_white().unwrap();
@@ -37,6 +40,7 @@ impl Parser {
 				TokenType::IntLit => {
 					args.push(ASTFunctionCallArg::Int32(arg.value().parse().unwrap()))
 				}
+				TokenType::Ident => args.push(ASTFunctionCallArg::Ident(arg.value().into())),
 				TokenType::Comma => (),
 				_ => unimplemented!("{arg:#?}"),
 			}
@@ -48,6 +52,25 @@ impl Parser {
 		}
 
 		ASTFunctionCall::new(name.into(), args)
+	}
+
+	fn parse_assignment(&mut self, type_token: Token, ident: Token) -> ASTAssignment {
+		let assign = self.skip_white().unwrap();
+		if assign.type_() != TokenType::AssignOp {
+			panic!("Expected assign Op {assign:#?}");
+		}
+
+		let value = self.skip_white().unwrap();
+		let value = match value.type_() {
+			TokenType::IntLit => value.value().parse::<i32>().unwrap(),
+			_ => unimplemented!("{value:#?}"),
+		};
+
+		ASTAssignment {
+			value,
+			type_name: type_token.value().into(),
+			ident: ident.value().into(),
+		}
 	}
 
 	fn parse_block(&mut self) -> ASTBlock {
@@ -63,9 +86,19 @@ impl Parser {
 				break;
 			}
 
+			let next = self.skip_white().unwrap();
 			if statement.type_() == TokenType::Ident {
-				statements.push(self.parse_function_call(statement.value()))
-			}
+				if next.type_() == TokenType::LeftParen {
+					let fn_call = self.parse_function_call(statement.value());
+					statements.push(ASTBlockStatement::FunctionCall(fn_call));
+				} else if next.type_() == TokenType::Ident {
+					// TODO: Also parse the type
+					let assign = self.parse_assignment(statement, next);
+					statements.push(ASTBlockStatement::Assignment(assign))
+				} else {
+					panic!("Expected left paren or identifier")
+				}
+			};
 
 			statement = self.skip_white().unwrap();
 		}
@@ -83,7 +116,7 @@ impl Parser {
 
 		let left_paren = self.skip_white().unwrap();
 		if left_paren.type_() != TokenType::LeftParen {
-			panic!("Expected left paren");
+			panic!("Expected left paren {left_paren:#?}");
 		}
 
 		let right_paren = self.skip_white().unwrap();
