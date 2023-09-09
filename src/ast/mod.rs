@@ -56,6 +56,7 @@ pub enum ASTBlockStatement {
 	Assignment(ASTAssignment),
 	FunctionCall(ASTFunctionCall),
 	Return(ASTReturn),
+	IfStmt(ASTIfStmt),
 }
 
 #[derive(Debug)]
@@ -67,6 +68,18 @@ impl ASTBlock {
 	pub fn new(statements: Vec<ASTBlockStatement>) -> Self {
 		Self { statements }
 	}
+}
+
+#[derive(Debug)]
+pub struct ASTLtStmt {
+	pub rhs: ASTAssignArg,
+	pub lhs: ASTAssignArg,
+}
+
+#[derive(Debug)]
+pub struct ASTIfStmt {
+	pub conditional: ASTLtStmt,
+	pub block: ASTBlock,
 }
 
 #[derive(Debug)]
