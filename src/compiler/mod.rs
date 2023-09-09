@@ -7,7 +7,7 @@ impl ASTAssignArg {
 	fn compile(&self) -> String {
 		match self {
 			ASTAssignArg::Int32(val) => format!("(i32.const {val})"),
-			ASTAssignArg::Ident(s) => format!("(get_local ${s})"),
+			ASTAssignArg::Ident(s) => format!("(get_local ${})", s.ident),
 		}
 	}
 }
@@ -234,10 +234,10 @@ impl Compiler {
 			for block in &function.body.statements {
 				match block {
 					ASTBlockStatement::Assignment(assign) => {
-						variables.push_str(&format!("(local ${} i32)\n", assign.ident));
+						variables.push_str(&format!("(local ${} i32)\n", assign.variable.ident));
 						body.push_str(&format!(
 							"(set_local ${} {})\n",
-							assign.ident,
+							assign.variable.ident,
 							assign.expr.compile()
 						));
 					}
@@ -258,15 +258,18 @@ impl Compiler {
 						let mut inner_stmts = String::new();
 						for inner_block in &stmt.block.statements {
 							match inner_block {
-								ASTBlockStatement::Return(inner_stmt) => {
-									inner_stmts.push_str(&format!("(return {})\n", inner_stmt.expr.compile()))
-								}
-								_ => panic!("Only return in if blocks")
+								ASTBlockStatement::Return(inner_stmt) => inner_stmts
+									.push_str(&format!("(return {})\n", inner_stmt.expr.compile())),
+								_ => panic!("Only return in if blocks"),
 							}
 						}
 
-						body.push_str(&format!("(if {} (then {}))\n", stmt.conditional.compile(), inner_stmts))
-					},
+						body.push_str(&format!(
+							"(if {} (then {}))\n",
+							stmt.conditional.compile(),
+							inner_stmts
+						))
+					}
 				}
 			}
 
