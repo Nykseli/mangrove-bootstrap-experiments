@@ -1,6 +1,6 @@
 use crate::ast::{
 	ASTAdd, ASTAssignArg, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement,
-	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTReturn,
+	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTLtStmt, ASTReturn
 };
 
 use super::tokeniser::Tokeniser;
@@ -120,6 +120,35 @@ impl Parser {
 		ASTReturn { expr }
 	}
 
+	fn parse_if_stmt(&mut self) -> ASTIfStmt {
+		let value_token = self.skip_white().unwrap();
+		let value = match value_token.type_() {
+			TokenType::IntLit => ASTAssignArg::Int32(value_token.value().parse::<i32>().unwrap()),
+			TokenType::Ident => ASTAssignArg::Ident(value_token.value().into()),
+			_ => unimplemented!("{value_token:#?}"),
+		};
+
+		let peek = self.skip_white_peek().unwrap();
+		let conditional = match peek.type_() {
+			TokenType::RelOp if peek.value() == "<" => {
+				// Skip the OpToken
+				self.skip_white().unwrap();
+				// get the assignment
+				let rhs = self.skip_white().unwrap();
+				let rhs = match rhs.type_() {
+					TokenType::IntLit => ASTAssignArg::Int32(rhs.value().parse::<i32>().unwrap()),
+					TokenType::Ident => ASTAssignArg::Ident(rhs.value().into()),
+					_ => unimplemented!("{rhs:#?}"),
+				};
+				ASTLtStmt { lhs: value, rhs }
+			}
+			_ => panic!("I have no idea what's happening"),
+		};
+
+		let block = self.parse_block();
+		ASTIfStmt { block, conditional }
+	}
+
 	fn parse_block(&mut self) -> ASTBlock {
 		let left_brace = self.skip_white().unwrap();
 		if left_brace.type_() != TokenType::LeftBrace {
@@ -143,11 +172,14 @@ impl Parser {
 					let assign = self.parse_assignment(statement, next);
 					statements.push(ASTBlockStatement::Assignment(assign))
 				} else {
-					panic!("Expected left paren or identifier")
+					panic!("Expected left paren or identifier {next:#?}")
 				}
 			} else if statement.type_() == TokenType::ReturnStmt {
 				let return_stmt = self.parse_return_statement();
 				statements.push(ASTBlockStatement::Return(return_stmt))
+			} else if statement.type_() == TokenType::IfStmt {
+				let if_stmt = self.parse_if_stmt();
+				statements.push(ASTBlockStatement::IfStmt(if_stmt))
 			} else {
 				panic!("Expected identifier got: {statement:#?}")
 			};
