@@ -1,3 +1,33 @@
+use std::mem::discriminant;
+
+#[derive(Debug, Clone)]
+pub struct ASTInt32Type {}
+
+#[derive(Debug, Clone, Default)]
+pub struct ASTStringType {
+	/// Is strign allocated on dynamically or statically?
+	/// Dynamic values have to be freed at the end of scope.
+	pub dynamic: bool,
+	/// The address to the start of the string.
+	/// Addresses are i32 in wasm so lets use it for now
+	pub addr: i32,
+	/// The size in bytes.
+	/// Addresses are i32 in wasm so lets use it for now
+	pub size: i32,
+}
+
+#[derive(Debug, Clone)]
+pub enum ASTType {
+	Int32(ASTInt32Type),
+	String(ASTStringType),
+}
+
+impl ASTType {
+	pub fn has_same_type(&self, other: &Self) -> bool {
+		discriminant(self) == discriminant(other)
+	}
+}
+
 #[derive(Debug, Clone)]
 pub enum ASTFunctionCallArg {
 	Char(char),
@@ -25,9 +55,23 @@ impl ASTFunctionCall {
 }
 
 #[derive(Debug)]
+pub struct ASTAssignIdent {
+	/// Name of the identifier
+	pub ident: String,
+	/// Type of the identifier
+	pub ident_type: ASTType,
+}
+
+#[derive(Debug)]
 pub enum ASTAssignArg {
 	Int32(i32),
-	Ident(String),
+	Ident(ASTAssignIdent),
+}
+
+impl ASTAssignArg {
+	pub fn has_same_type(&self, other: &Self) -> bool {
+		discriminant(self) == discriminant(other)
+	}
 }
 
 #[derive(Debug)]
@@ -53,8 +97,7 @@ pub enum ASTAssignmentExpr {
 
 #[derive(Debug)]
 pub struct ASTAssignment {
-	pub type_name: String,
-	pub ident: String,
+	pub variable: ASTVariable,
 	pub expr: ASTAssignmentExpr,
 }
 
@@ -66,14 +109,24 @@ pub enum ASTBlockStatement {
 	IfStmt(ASTIfStmt),
 }
 
+#[derive(Debug, Clone)]
+pub struct ASTVariable {
+	pub ast_type: ASTType,
+	pub ident: String,
+}
+
 #[derive(Debug)]
 pub struct ASTBlock {
+	pub variables: Vec<ASTVariable>,
 	pub statements: Vec<ASTBlockStatement>,
 }
 
 impl ASTBlock {
-	pub fn new(statements: Vec<ASTBlockStatement>) -> Self {
-		Self { statements }
+	pub fn new(statements: Vec<ASTBlockStatement>, variables: Vec<ASTVariable>) -> Self {
+		Self {
+			statements,
+			variables,
+		}
 	}
 }
 
