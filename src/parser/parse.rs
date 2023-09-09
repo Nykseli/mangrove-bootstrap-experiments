@@ -1,6 +1,6 @@
 use crate::ast::{
 	ASTAdd, ASTAssignArg, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement,
-	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTLtStmt, ASTReturn
+	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTLtStmt, ASTReturn, ASTMinus,
 };
 
 use super::tokeniser::Tokeniser;
@@ -78,7 +78,7 @@ impl Parser {
 		let expr = match peek.type_() {
 			TokenType::AddOp => {
 				// Skip the OpToken
-				self.skip_white().unwrap();
+				let token = self.skip_white().unwrap();
 				// get the assignment
 				let rhs = self.skip_white().unwrap();
 				let rhs = match rhs.type_() {
@@ -86,7 +86,11 @@ impl Parser {
 					TokenType::Ident => ASTAssignArg::Ident(rhs.value().into()),
 					_ => unimplemented!("{rhs:#?}"),
 				};
-				ASTAssignmentExpr::Add(ASTAdd { lhs: value, rhs })
+				if token.value() == "+" {
+					ASTAssignmentExpr::Add(ASTAdd { lhs: value, rhs })
+				} else {
+					ASTAssignmentExpr::Minus(ASTMinus { lhs: value, rhs })
+				}
 			}
 			TokenType::LeftParen => {
 				// Skip the LeftParen
