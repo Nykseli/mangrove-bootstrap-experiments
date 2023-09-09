@@ -1,6 +1,6 @@
 use crate::ast::{
 	ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTFunction, ASTFunctionCall,
-	ASTFunctionCallArg,
+	ASTFunctionCallArg, ASTLtStmt,
 };
 
 impl ASTAssignArg {
@@ -38,6 +38,12 @@ impl ASTAssignmentExpr {
 				format!("(call ${} {})\n", func.name, arg_str)
 			}
 		}
+	}
+}
+
+impl ASTLtStmt {
+	fn compile(&self) -> String {
+		format!("(i32.lt_s {} {})", self.lhs.compile(), self.rhs.compile())
 	}
 }
 
@@ -245,6 +251,19 @@ impl Compiler {
 					ASTBlockStatement::Return(stmt) => {
 						body.push_str(&format!("(return {})\n", stmt.expr.compile()))
 					}
+					ASTBlockStatement::IfStmt(stmt) => {
+						let mut inner_stmts = String::new();
+						for inner_block in &stmt.block.statements {
+							match inner_block {
+								ASTBlockStatement::Return(inner_stmt) => {
+									inner_stmts.push_str(&format!("(return {})\n", inner_stmt.expr.compile()))
+								}
+								_ => panic!("Only return in if blocks")
+							}
+						}
+
+						body.push_str(&format!("(if {} (then {}))\n", stmt.conditional.compile(), inner_stmts))
+					},
 				}
 			}
 
