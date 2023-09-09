@@ -37,10 +37,17 @@ pub struct ASTAdd {
 }
 
 #[derive(Debug)]
+pub struct ASTMinus {
+	pub rhs: ASTAssignArg,
+	pub lhs: ASTAssignArg,
+}
+
+#[derive(Debug)]
 pub enum ASTAssignmentExpr {
 	/// Single value
 	Arg(ASTAssignArg),
 	Add(ASTAdd),
+	Minus(ASTMinus),
 	FunctionCall(ASTFunctionCall),
 }
 
