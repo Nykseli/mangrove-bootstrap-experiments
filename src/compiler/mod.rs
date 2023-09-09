@@ -19,6 +19,9 @@ impl ASTAssignmentExpr {
 			ASTAssignmentExpr::Add(val) => {
 				format!("(i32.add {} {})", val.lhs.compile(), val.rhs.compile())
 			}
+			ASTAssignmentExpr::Minus(val) => {
+				format!("(i32.sub {} {})", val.lhs.compile(), val.rhs.compile())
+			}
 			ASTAssignmentExpr::FunctionCall(func) => {
 				// There's no args at this point
 				let mut arg_str = String::new();
