@@ -1,10 +1,16 @@
 use crate::ast::{
-	ASTAdd, ASTAssignArg, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement,
-	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTLtStmt, ASTReturn, ASTMinus,
+	ASTAdd, ASTAssignArg, ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock,
+	ASTBlockStatement, ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTInt32Type,
+	ASTLtStmt, ASTMinus, ASTReturn, ASTStringType, ASTType, ASTVariable,
 };
 
 use super::tokeniser::Tokeniser;
 use super::types::{Token, TokenType};
+
+#[derive(Debug)]
+struct BlockCtx {
+	variables: Vec<ASTVariable>,
+}
 
 pub struct Parser {
 	lexer: Tokeniser,
@@ -66,14 +72,44 @@ impl Parser {
 		ASTFunctionCall::new(name.into(), args, used)
 	}
 
-	fn parse_assign_expr(&mut self) -> ASTAssignmentExpr {
-		let value_token = self.skip_white().unwrap();
-		let value = match value_token.type_() {
-			TokenType::IntLit => ASTAssignArg::Int32(value_token.value().parse::<i32>().unwrap()),
-			TokenType::Ident => ASTAssignArg::Ident(value_token.value().into()),
-			_ => unimplemented!("{value_token:#?}"),
-		};
+	fn parse_value_token(
+		&mut self,
+		ctx: &BlockCtx,
+		target_type: &ASTType,
+		value: &Token,
+	) -> ASTAssignArg {
+		match value.type_() {
+			TokenType::IntLit => {
+				if let ASTType::Int32(_) = target_type {
+					// I've forgotten how to do this properly
+				} else {
+					panic!("Expected int Token")
+				}
 
+				ASTAssignArg::Int32(value.value().parse::<i32>().unwrap())
+			}
+			TokenType::Ident => {
+				if let Some(var) = ctx.variables.iter().find(|v| v.ident == value.value()) {
+					if !var.ast_type.has_same_type(target_type) {
+						panic!("Different types: {target_type:#?} {:#?}", var.ast_type)
+					}
+				} else if self.skip_white_peek().unwrap().type_() != TokenType::LeftParen {
+					// Panic for everything else execpt functions
+					panic!("Variable {} not found! {:#?}", value.value(), ctx)
+				};
+				// TODO: properly create the type info
+				ASTAssignArg::Ident(ASTAssignIdent {
+					ident: value.value().into(),
+					ident_type: target_type.clone(),
+				})
+			}
+			_ => unimplemented!("{value:#?}"),
+		}
+	}
+
+	fn parse_assign_expr(&mut self, ctx: &BlockCtx, target_type: &ASTType) -> ASTAssignmentExpr {
+		let value_token = self.skip_white().unwrap();
+		let value = self.parse_value_token(ctx, target_type, &value_token);
 		let peek = self.skip_white_peek().unwrap();
 		let expr = match peek.type_() {
 			TokenType::AddOp => {
@@ -81,11 +117,7 @@ impl Parser {
 				let token = self.skip_white().unwrap();
 				// get the assignment
 				let rhs = self.skip_white().unwrap();
-				let rhs = match rhs.type_() {
-					TokenType::IntLit => ASTAssignArg::Int32(rhs.value().parse::<i32>().unwrap()),
-					TokenType::Ident => ASTAssignArg::Ident(rhs.value().into()),
-					_ => unimplemented!("{rhs:#?}"),
-				};
+				let rhs = self.parse_value_token(ctx, target_type, &rhs);
 				if token.value() == "+" {
 					ASTAssignmentExpr::Add(ASTAdd { lhs: value, rhs })
 				} else {
@@ -104,33 +136,49 @@ impl Parser {
 		expr
 	}
 
-	fn parse_assignment(&mut self, type_token: Token, ident: Token) -> ASTAssignment {
+	fn parse_ast_type(type_token: &Token) -> ASTType {
+		if type_token.value() == "String" {
+			ASTType::String(ASTStringType::default())
+		} else if type_token.value() == "Int32" {
+			ASTType::Int32(ASTInt32Type {})
+		} else {
+			panic!("Expected 'String' or 'Int32' type")
+		}
+	}
+
+	fn parse_assignment(
+		&mut self,
+		ctx: &BlockCtx,
+		type_token: Token,
+		ident: Token,
+	) -> ASTAssignment {
+		let ast_type = Self::parse_ast_type(&type_token);
+
 		let assign = self.skip_white().unwrap();
 		if assign.type_() != TokenType::AssignOp {
 			panic!("Expected assign Op {assign:#?}");
 		}
 
-		let expr = self.parse_assign_expr();
-
-		ASTAssignment {
-			expr,
-			type_name: type_token.value().into(),
+		let expr = self.parse_assign_expr(ctx, &ast_type);
+		let variable = ASTVariable {
+			ast_type,
 			ident: ident.value().into(),
-		}
+		};
+
+		ASTAssignment { expr, variable }
 	}
 
-	fn parse_return_statement(&mut self) -> ASTReturn {
-		let expr = self.parse_assign_expr();
+	fn parse_return_statement(&mut self, ctx: &BlockCtx) -> ASTReturn {
+		// TODO: Target type should be block's type
+		let expr = self.parse_assign_expr(ctx, &ASTType::Int32(ASTInt32Type {}));
 		ASTReturn { expr }
 	}
 
-	fn parse_if_stmt(&mut self) -> ASTIfStmt {
+	fn parse_if_stmt(&mut self, ctx: &BlockCtx) -> ASTIfStmt {
 		let value_token = self.skip_white().unwrap();
-		let value = match value_token.type_() {
-			TokenType::IntLit => ASTAssignArg::Int32(value_token.value().parse::<i32>().unwrap()),
-			TokenType::Ident => ASTAssignArg::Ident(value_token.value().into()),
-			_ => unimplemented!("{value_token:#?}"),
-		};
+		// TODO: poperly figure out the target type
+		let target_type = ASTType::Int32(ASTInt32Type {});
+		let value = self.parse_value_token(ctx, &target_type, &value_token);
 
 		let peek = self.skip_white_peek().unwrap();
 		let conditional = match peek.type_() {
@@ -139,26 +187,29 @@ impl Parser {
 				self.skip_white().unwrap();
 				// get the assignment
 				let rhs = self.skip_white().unwrap();
-				let rhs = match rhs.type_() {
-					TokenType::IntLit => ASTAssignArg::Int32(rhs.value().parse::<i32>().unwrap()),
-					TokenType::Ident => ASTAssignArg::Ident(rhs.value().into()),
-					_ => unimplemented!("{rhs:#?}"),
-				};
+				let rhs = self.parse_value_token(ctx, &target_type, &rhs);
 				ASTLtStmt { lhs: value, rhs }
 			}
 			_ => panic!("I have no idea what's happening"),
 		};
 
-		let block = self.parse_block();
+		let block = self.parse_block(None);
 		ASTIfStmt { block, conditional }
 	}
 
-	fn parse_block(&mut self) -> ASTBlock {
+	fn parse_block(&mut self, variables: Option<Vec<ASTVariable>>) -> ASTBlock {
 		let left_brace = self.skip_white().unwrap();
 		if left_brace.type_() != TokenType::LeftBrace {
 			panic!("Expected left brace");
 		}
 
+		let mut ctx = BlockCtx {
+			variables: if let Some(v) = variables {
+				v
+			} else {
+				Vec::new()
+			},
+		};
 		let mut statements = Vec::new();
 		let mut statement = self.skip_white().unwrap();
 		loop {
@@ -173,16 +224,17 @@ impl Parser {
 					statements.push(ASTBlockStatement::FunctionCall(fn_call));
 				} else if next.type_() == TokenType::Ident {
 					// TODO: Also parse the type
-					let assign = self.parse_assignment(statement, next);
+					let assign = self.parse_assignment(&ctx, statement, next);
+					ctx.variables.push(assign.variable.clone());
 					statements.push(ASTBlockStatement::Assignment(assign))
 				} else {
 					panic!("Expected left paren or identifier {next:#?}")
 				}
 			} else if statement.type_() == TokenType::ReturnStmt {
-				let return_stmt = self.parse_return_statement();
+				let return_stmt = self.parse_return_statement(&ctx);
 				statements.push(ASTBlockStatement::Return(return_stmt))
 			} else if statement.type_() == TokenType::IfStmt {
-				let if_stmt = self.parse_if_stmt();
+				let if_stmt = self.parse_if_stmt(&ctx);
 				statements.push(ASTBlockStatement::IfStmt(if_stmt))
 			} else {
 				panic!("Expected identifier got: {statement:#?}")
@@ -191,7 +243,7 @@ impl Parser {
 			statement = self.skip_white().unwrap();
 		}
 
-		ASTBlock::new(statements)
+		ASTBlock::new(statements, ctx.variables)
 	}
 
 	fn parse_function(&mut self) -> ASTFunction {
@@ -207,7 +259,9 @@ impl Parser {
 			panic!("Expected left paren {left_paren:#?}");
 		}
 
+		// TODO: args should be the same as variables
 		let mut args: Vec<String> = Vec::new();
+		let mut variables: Vec<ASTVariable> = Vec::new();
 		let mut ident = self.skip_white().unwrap();
 		while ident.type_() != TokenType::RightParen {
 			// We don't need the type right now so just ignore it
@@ -221,6 +275,10 @@ impl Parser {
 			}
 
 			args.push(ident.value().into());
+			variables.push(ASTVariable {
+				ast_type: ASTType::Int32(ASTInt32Type {}),
+				ident: ident.value().into(),
+			});
 
 			// Parse, but ignore commas
 			ident = self.skip_white().unwrap();
@@ -242,7 +300,7 @@ impl Parser {
 			_ => panic!("Didn't expect {return_type:#?}"),
 		};
 
-		let body = self.parse_block();
+		let body = self.parse_block(Some(variables));
 
 		ASTFunction::new(name.into(), args, body, returns)
 	}
