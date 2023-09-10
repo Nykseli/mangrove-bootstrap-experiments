@@ -1,26 +1,55 @@
 use crate::ast::{
 	ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTFunction, ASTFunctionCall,
-	ASTFunctionCallArg, ASTLtStmt,
+	ASTFunctionCallArg, ASTLtStmt, StaticValue,
 };
 
 impl ASTAssignArg {
-	fn compile(&self) -> String {
+	fn compile(&self, global_data: &mut Vec<GlobalData>, vars: &mut Vec<Pointer>) -> String {
 		match self {
-			ASTAssignArg::Int32(val) => format!("(i32.const {val})"),
 			ASTAssignArg::Ident(s) => format!("(get_local ${})", s.ident),
+			ASTAssignArg::Static(s) => match &s.value {
+				StaticValue::Int32(val) => format!("(i32.const {val})"),
+				StaticValue::String(val) => {
+					let data_len = val.len();
+					let ptr_idx = vars.len();
+					let global =
+						Compiler::add_data(global_data, ASTFunctionCallArg::String(val.into()));
+					let global_addr = global.start;
+					// call reserve bytes
+					// save stackpointer to offset 0
+					// save length of the string to offset 4
+					let setup = format!(
+						"
+						(set_local $__pointer{ptr_idx} (call $__reserve_bytes (i32.const 8)))
+						(i32.store (get_local $__pointer{ptr_idx}) (i32.const {global_addr}))
+						(i32.store (i32.add (get_local $__pointer{ptr_idx}) (i32.const 4)) (i32.const {data_len}))
+					"
+					);
+					vars.push(Pointer { size: 0, setup });
+					format!("(get_local $__pointer{ptr_idx})")
+				}
+			},
 		}
 	}
 }
 
 impl ASTAssignmentExpr {
-	fn compile(&self) -> String {
+	fn compile(&self, global_data: &mut Vec<GlobalData>, vars: &mut Vec<Pointer>) -> String {
 		match self {
-			ASTAssignmentExpr::Arg(arg) => arg.compile(),
+			ASTAssignmentExpr::Arg(arg) => arg.compile(global_data, vars),
 			ASTAssignmentExpr::Add(val) => {
-				format!("(i32.add {} {})", val.lhs.compile(), val.rhs.compile())
+				format!(
+					"(i32.add {} {})",
+					val.lhs.compile(global_data, vars),
+					val.rhs.compile(global_data, vars)
+				)
 			}
 			ASTAssignmentExpr::Minus(val) => {
-				format!("(i32.sub {} {})", val.lhs.compile(), val.rhs.compile())
+				format!(
+					"(i32.sub {} {})",
+					val.lhs.compile(global_data, vars),
+					val.rhs.compile(global_data, vars)
+				)
 			}
 			ASTAssignmentExpr::FunctionCall(func) => {
 				// There's no args at this point
@@ -45,9 +74,20 @@ impl ASTAssignmentExpr {
 }
 
 impl ASTLtStmt {
-	fn compile(&self) -> String {
-		format!("(i32.lt_s {} {})", self.lhs.compile(), self.rhs.compile())
+	fn compile(&self, global_data: &mut Vec<GlobalData>, vars: &mut Vec<Pointer>) -> String {
+		format!(
+			"(i32.lt_s {} {})",
+			self.lhs.compile(global_data, vars),
+			self.rhs.compile(global_data, vars)
+		)
 	}
+}
+
+#[derive(Debug, Clone)]
+pub struct Pointer {
+	size: i32,
+	/// Allocation instructions
+	setup: String,
 }
 
 #[derive(Debug, Clone)]
@@ -206,6 +246,7 @@ impl Compiler {
 		let mut global_data: Vec<GlobalData> = Vec::new();
 
 		for function in &self.ast {
+			let mut pointers: Vec<Pointer> = Vec::new();
 			let mut variables = String::new();
 			let mut body = String::new();
 
@@ -238,7 +279,7 @@ impl Compiler {
 						body.push_str(&format!(
 							"(set_local ${} {})\n",
 							assign.variable.ident,
-							assign.expr.compile()
+							assign.expr.compile(&mut global_data, &mut pointers)
 						));
 					}
 					ASTBlockStatement::FunctionCall(call) => {
@@ -251,22 +292,27 @@ impl Compiler {
 							body.push_str(&format!("(call ${} {})\n", call.name, args));
 						}
 					}
-					ASTBlockStatement::Return(stmt) => {
-						body.push_str(&format!("(return {})\n", stmt.expr.compile()))
-					}
+					ASTBlockStatement::Return(stmt) => body.push_str(&format!(
+						"(return {})\n",
+						stmt.expr.compile(&mut global_data, &mut pointers)
+					)),
 					ASTBlockStatement::IfStmt(stmt) => {
 						let mut inner_stmts = String::new();
 						for inner_block in &stmt.block.statements {
 							match inner_block {
-								ASTBlockStatement::Return(inner_stmt) => inner_stmts
-									.push_str(&format!("(return {})\n", inner_stmt.expr.compile())),
+								ASTBlockStatement::Return(inner_stmt) => {
+									inner_stmts.push_str(&format!(
+										"(return {})\n",
+										inner_stmt.expr.compile(&mut global_data, &mut pointers)
+									))
+								}
 								_ => panic!("Only return in if blocks"),
 							}
 						}
 
 						body.push_str(&format!(
 							"(if {} (then {}))\n",
-							stmt.conditional.compile(),
+							stmt.conditional.compile(&mut global_data, &mut pointers),
 							inner_stmts
 						))
 					}
@@ -274,10 +320,22 @@ impl Compiler {
 			}
 
 			instructions.push_str(&variables);
+			for (idx, _) in pointers.iter().enumerate() {
+				instructions.push_str(&format!("(local $__pointer{} i32)\n", idx));
+			}
+			for pointer in &pointers {
+				instructions.push_str(&pointer.setup);
+			}
 			instructions.push_str(&body);
 			instructions.push(')');
 		}
 
+		let data_end = if let Some(end) = global_data.iter().last() {
+			end.start + end.data_size() as i32
+		} else {
+			// Internal functions reserve 4096 bytes so the "heap" has to start there
+			4096
+		};
 		let data: Vec<String> = global_data
 			.iter()
 			.filter(|gd| gd.is_global())
@@ -293,7 +351,10 @@ impl Compiler {
 			;; TODO: only import required ones
 			(import \"internals\" \"__print_char\" (func $__print_char (param i32)))
 			(import \"internals\" \"__print_int\" (func $__print_int (param i32)))
+			(import \"internals\" \"__init_memory\" (func $__init_memory (param i32)))
+			(import \"internals\" \"__reserve_bytes\" (func $__reserve_bytes (param i32) (result i32)))
 			(import \"internals\" \"__print_str\" (func $__print_str (param i32) (param i32)))
+			(import \"internals\" \"__print_str_ptr\" (func $__print_str_ptr (param i32)))
 			;; shared internal memory
 			(import \"internals\" \"memory\" (memory 0))
 
@@ -305,6 +366,11 @@ impl Compiler {
 
 			;; We always have to export main
 			(export \"main\" (func $main))
+
+			(func $init
+				(call $__init_memory (i32.const {data_end}))
+			)
+			(export \"init\" (func $init))
 		)
 			",
 			data, instructions
