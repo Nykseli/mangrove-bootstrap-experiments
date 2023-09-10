@@ -63,8 +63,20 @@ pub struct ASTAssignIdent {
 }
 
 #[derive(Debug)]
-pub enum ASTAssignArg {
+pub enum StaticValue {
 	Int32(i32),
+	String(String),
+}
+
+#[derive(Debug)]
+pub struct ASTStaticAssign {
+	pub value: StaticValue,
+	pub value_type: ASTType,
+}
+
+#[derive(Debug)]
+pub enum ASTAssignArg {
+	Static(ASTStaticAssign),
 	Ident(ASTAssignIdent),
 }
 
