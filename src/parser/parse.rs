@@ -1,7 +1,8 @@
 use crate::ast::{
 	ASTAdd, ASTAssignArg, ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock,
 	ASTBlockStatement, ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTInt32Type,
-	ASTLtStmt, ASTMinus, ASTReturn, ASTStringType, ASTType, ASTVariable,
+	ASTLtStmt, ASTMinus, ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable,
+	StaticValue,
 };
 
 use super::tokeniser::Tokeniser;
@@ -86,7 +87,24 @@ impl Parser {
 					panic!("Expected int Token")
 				}
 
-				ASTAssignArg::Int32(value.value().parse::<i32>().unwrap())
+				let value = StaticValue::Int32(value.value().parse::<i32>().unwrap());
+				ASTAssignArg::Static(ASTStaticAssign {
+					value,
+					value_type: ASTType::Int32(ASTInt32Type {}),
+				})
+			}
+			TokenType::StringLit => {
+				if let ASTType::String(_) = target_type {
+					// I've forgotten how to do this properly
+				} else {
+					panic!("Expected String")
+				}
+
+				let value = StaticValue::String(value.value().into());
+				ASTAssignArg::Static(ASTStaticAssign {
+					value,
+					value_type: ASTType::String(ASTStringType::default()),
+				})
 			}
 			TokenType::Ident => {
 				if let Some(var) = ctx.variables.iter().find(|v| v.ident == value.value()) {
