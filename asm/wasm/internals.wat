@@ -124,4 +124,70 @@
 		(get_local $current)
 	)
 	(export "__reserve_bytes" (func $__reserve_bytes))
+
+	;; target, source, n bytes
+	(func $__mem_n_copy (param i32) (param i32) (param i32)
+		(local $counter i32)
+		(set_local $counter (i32.const 0))
+
+		(loop $copy
+			;; Store single byte from source to target
+			(i32.store
+				;; target address + offset
+				(i32.add (local.get 0) (get_local $counter))
+				;; value from src (address + offset)
+				(i32.load (i32.add (local.get 1) (get_local $counter)))
+			)
+
+			(set_local $counter (i32.add (get_local $counter) (i32.const 1)))
+			;; Continue loop until we have copied n bytes
+			(br_if $copy (i32.lt_s (get_local $counter) (local.get 2)))
+		)
+	)
+
+	;; Concat string1 and string2 pointers, create a new string
+	;; and return the pointer to the newly created string
+	(func $__string_concat (param i32) (param i32) (result i32)
+		(local $size1 i32)
+		(local $size2 i32)
+		(local $str_size i32)
+		(local $new_ptr i32)
+		(local $new_string i32)
+
+		;; string length is ptr+4
+		(set_local $size1 (i32.load (i32.add (local.get 0) (i32.const 4))))
+		(set_local $size2 (i32.load (i32.add (local.get 1) (i32.const 4))))
+		;; Add sizes together to get total size
+		(set_local $str_size (i32.add (get_local $size1) (get_local $size2)))
+		;; Add 8 bytes to str_size to make sure we can save the ptr and size
+		;; values to first 8 bytes
+		(set_local $str_size (i32.add (get_local $str_size) (i32.const 8)))
+		;; Allocate new string and get the addr pointer to it
+		(set_local $new_string (call $__reserve_bytes (get_local $str_size)))
+		;; Get the pointer to the heap allocated string (8 bytes after the data info)
+		(set_local $new_ptr (i32.add (get_local $new_string) (i32.const 8)))
+		;; Save the size info to the string pointer (offset 4)
+		(i32.store
+			;; size addr
+			(i32.add (get_local $new_string) (i32.const 4))
+			;; size value
+			(i32.add (get_local $size1) (get_local $size2))
+		)
+		;; Save the pointer to string data to the first 4 bytes of the string ptr
+		(i32.store (get_local $new_string) (get_local $new_ptr))
+
+		;; Copy the first string into new string
+		(call $__mem_n_copy (get_local $new_ptr) (i32.load (local.get 0)) (get_local $size1))
+		;; Copy the second string into new string
+		(call $__mem_n_copy
+			;; string address + offset of the first string
+			(i32.add (get_local $new_ptr) (get_local $size1))
+			(i32.load (local.get 1))
+			(get_local $size2)
+		)
+
+		;; finally return the newly created string
+		(get_local $new_string)
+	)
+	(export "__string_concat" (func $__string_concat))
 )
