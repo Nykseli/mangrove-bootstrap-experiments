@@ -1,6 +1,6 @@
 use crate::ast::{
 	ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTFunction, ASTFunctionCall,
-	ASTFunctionCallArg, ASTLtStmt, StaticValue,
+	ASTFunctionCallArg, ASTLtStmt, ASTType, StaticValue,
 };
 
 impl ASTAssignArg {
@@ -38,8 +38,17 @@ impl ASTAssignmentExpr {
 		match self {
 			ASTAssignmentExpr::Arg(arg) => arg.compile(global_data, vars),
 			ASTAssignmentExpr::Add(val) => {
+				// Assuming lhs has same type as rhs
+				let function = match &val.lhs {
+					ASTAssignArg::Static(_) => "i32.add",
+					ASTAssignArg::Ident(val) => match val.ident_type {
+						ASTType::Int32(_) => "i32.add",
+						ASTType::String(_) => "call $__string_concat",
+					},
+				};
+
 				format!(
-					"(i32.add {} {})",
+					"({function} {} {})",
 					val.lhs.compile(global_data, vars),
 					val.rhs.compile(global_data, vars)
 				)
@@ -353,6 +362,7 @@ impl Compiler {
 			(import \"internals\" \"__print_int\" (func $__print_int (param i32)))
 			(import \"internals\" \"__init_memory\" (func $__init_memory (param i32)))
 			(import \"internals\" \"__reserve_bytes\" (func $__reserve_bytes (param i32) (result i32)))
+			(import \"internals\" \"__string_concat\" (func $__string_concat (param i32) (param i32) (result i32)))
 			(import \"internals\" \"__print_str\" (func $__print_str (param i32) (param i32)))
 			(import \"internals\" \"__print_str_ptr\" (func $__print_str_ptr (param i32)))
 			;; shared internal memory
