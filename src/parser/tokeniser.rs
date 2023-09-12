@@ -6,6 +6,7 @@ use super::{
 /// Err means EOF
 type TokenResult<T> = Result<T, ()>;
 
+#[derive(Debug)]
 #[allow(dead_code)]
 /// Helper struct for reading tokens
 struct ReadStart {
@@ -13,6 +14,7 @@ struct ReadStart {
 	position: Position,
 }
 
+#[derive(Debug)]
 pub struct Tokeniser {
 	file: Vec<char>,
 	current_char: char,

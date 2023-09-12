@@ -1,8 +1,8 @@
 use crate::ast::{
 	ASTAdd, ASTAssignArg, ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock,
-	ASTBlockStatement, ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTInt32Type,
-	ASTLtStmt, ASTMinus, ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable,
-	StaticValue,
+	ASTBlockStatement, ASTClass, ASTClassInit, ASTClassInitArg, ASTClassMember, ASTFunction,
+	ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTInt32Type, ASTLtStmt, ASTMinus, ASTReturn,
+	ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
 };
 
 use super::tokeniser::Tokeniser;
@@ -13,13 +13,25 @@ struct BlockCtx {
 	variables: Vec<ASTVariable>,
 }
 
+#[derive(Debug)]
 pub struct Parser {
-	lexer: Tokeniser,
+	pub lexer: Tokeniser,
+	pub nodes: Vec<ASTFunction>,
+	pub custom_types: Vec<ASTClass>,
 }
 
 impl Parser {
 	pub fn new(lexer: Tokeniser) -> Self {
-		Self { lexer }
+		Self {
+			lexer,
+			nodes: Vec::new(),
+			custom_types: Vec::new(),
+		}
+	}
+
+	pub fn custom_type(&self, name: &str) -> Option<ASTClass> {
+		// TODO: add lifetiems so we can use a ref
+		self.custom_types.iter().find(|ct| ct.name == name).cloned()
 	}
 
 	fn skip_white(&mut self) -> Result<Token, ()> {
@@ -59,7 +71,24 @@ impl Parser {
 				TokenType::IntLit => {
 					args.push(ASTFunctionCallArg::Int32(arg.value().parse().unwrap()))
 				}
-				TokenType::Ident => args.push(ASTFunctionCallArg::Ident(arg.value().into())),
+				TokenType::Ident => {
+					// TODO: proper ident parsing
+					if self.skip_white_peek().unwrap().type_() == TokenType::Dot {
+						let ident = arg.value().into();
+						// skip the dot
+						self.skip_white().unwrap();
+						let dotted = self.skip_white().unwrap();
+						if dotted.type_() != TokenType::Ident {
+							panic!("Expected ident after dot");
+						}
+						args.push(ASTFunctionCallArg::DottedIdent((
+							ident,
+							dotted.value().into(),
+						)))
+					} else {
+						args.push(ASTFunctionCallArg::Ident(arg.value().into()))
+					}
+				}
 				TokenType::Comma => (),
 				_ => unimplemented!("{arg:#?}"),
 			}
@@ -125,8 +154,52 @@ impl Parser {
 		}
 	}
 
+	fn parse_class_init(&mut self, ctx: &BlockCtx, target_type: &ASTType) -> ASTClassInit {
+		// LeftBrace is skipped in parse_assign_expr so we can ignore it
+		let class = if let ASTType::Custom(class) = target_type {
+			class
+		} else {
+			panic!("Expected a class type {target_type:#?}")
+		};
+
+		let mut inits = Vec::new();
+		let mut token = self.skip_white().unwrap();
+		while token.type_() != TokenType::RightBrace {
+			let ident: String = token.value().into();
+			let member = if let Some(member) = class.member(&ident) {
+				member
+			} else {
+				panic!("Member '{ident}' is not part of the class {}", class.name)
+			};
+
+			token = self.skip_white().unwrap();
+			if token.type_() != TokenType::Colon {
+				panic!("Expected colon");
+			}
+			token = self.skip_white().unwrap();
+
+			let arg = self.parse_value_token(ctx, &member.type_, &token);
+			inits.push(ASTClassInitArg { arg, ident });
+
+			token = self.skip_white().unwrap();
+			if token.type_() == TokenType::Comma {
+				token = self.skip_white().unwrap();
+			}
+		}
+
+		ASTClassInit {
+			args: inits,
+			name: class.name.clone(),
+		}
+	}
+
 	fn parse_assign_expr(&mut self, ctx: &BlockCtx, target_type: &ASTType) -> ASTAssignmentExpr {
 		let value_token = self.skip_white().unwrap();
+		if value_token.type_() == TokenType::LeftBrace {
+			// TODO: make sure members have the right type
+			let class = self.parse_class_init(ctx, target_type);
+			return ASTAssignmentExpr::ClassInit(class);
+		}
 		let value = self.parse_value_token(ctx, target_type, &value_token);
 		let peek = self.skip_white_peek().unwrap();
 		let expr = match peek.type_() {
@@ -154,11 +227,13 @@ impl Parser {
 		expr
 	}
 
-	fn parse_ast_type(type_token: &Token) -> ASTType {
+	fn parse_ast_type(&self, type_token: &Token) -> ASTType {
 		if type_token.value() == "String" {
 			ASTType::String(ASTStringType::default())
 		} else if type_token.value() == "Int32" {
 			ASTType::Int32(ASTInt32Type {})
+		} else if let Some(custom) = self.custom_type(type_token.value()) {
+			ASTType::Custom(custom)
 		} else {
 			panic!("Expected 'String' or 'Int32' type")
 		}
@@ -170,7 +245,7 @@ impl Parser {
 		type_token: Token,
 		ident: Token,
 	) -> ASTAssignment {
-		let ast_type = Self::parse_ast_type(&type_token);
+		let ast_type = self.parse_ast_type(&type_token);
 
 		let assign = self.skip_white().unwrap();
 		if assign.type_() != TokenType::AssignOp {
@@ -241,7 +316,6 @@ impl Parser {
 					let fn_call = self.parse_function_call(statement.value(), false);
 					statements.push(ASTBlockStatement::FunctionCall(fn_call));
 				} else if next.type_() == TokenType::Ident {
-					// TODO: Also parse the type
 					let assign = self.parse_assignment(&ctx, statement, next);
 					ctx.variables.push(assign.variable.clone());
 					statements.push(ASTBlockStatement::Assignment(assign))
@@ -323,22 +397,62 @@ impl Parser {
 		ASTFunction::new(name.into(), args, body, returns)
 	}
 
-	pub fn parse(&mut self) -> Vec<ASTFunction> {
-		let mut nodes = Vec::new();
+	fn parse_class(&mut self) -> ASTClass {
+		let ident = self.skip_white().unwrap();
+		let name = if ident.type_() == TokenType::Ident {
+			ident.value().into()
+		} else {
+			panic!("Expected identifier after 'class'")
+		};
+
+		let left_brace = self.skip_white().unwrap();
+		if left_brace.type_() != TokenType::LeftBrace {
+			panic!("Expected left brace");
+		}
+
+		let mut members: Vec<ASTClassMember> = Vec::new();
+		let mut ident = self.skip_white().unwrap();
+		while ident.type_() != TokenType::RightBrace {
+			if ident.type_() != TokenType::Ident {
+				panic!("Expected ident in funciton");
+			}
+
+			// TODO: self reference in types
+			let type_ = self.parse_ast_type(&ident);
+
+			ident = self.skip_white().unwrap();
+			if ident.type_() != TokenType::Ident {
+				panic!("Expected identfier {ident:#?}");
+			}
+
+			members.push(ASTClassMember {
+				type_,
+				ident: ident.value().into(),
+			});
+
+			ident = self.skip_white().unwrap();
+		}
+
+		ASTClass { name, members }
+	}
+
+	pub fn parse(&mut self) {
 		let mut current = self.skip_white();
 
 		while let Ok(token) = current {
 			if token.type_() == TokenType::Eof {
 				break;
 			} else if token.type_() == TokenType::FunctionDef {
-				nodes.push(self.parse_function());
+				let function = self.parse_function();
+				self.nodes.push(function);
+			} else if token.type_() == TokenType::ClassDef {
+				let class = self.parse_class();
+				self.custom_types.push(class.clone());
 			} else {
-				unimplemented!("Only FunctionDef statements can be parsed!")
+				unimplemented!("Only FunctionDef statements can be parsed! {token:?}")
 			}
 
 			current = self.skip_white();
 		}
-
-		nodes
 	}
 }
