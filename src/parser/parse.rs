@@ -235,7 +235,7 @@ impl Parser {
 		} else if let Some(custom) = self.custom_type(type_token.value()) {
 			ASTType::Custom(custom)
 		} else {
-			panic!("Expected 'String' or 'Int32' type")
+			panic!("Type '{}' not found", type_token.value())
 		}
 	}
 
@@ -352,21 +352,26 @@ impl Parser {
 		}
 
 		// TODO: args should be the same as variables
-		let mut args: Vec<String> = Vec::new();
+		let mut args: Vec<ASTVariable> = Vec::new();
 		let mut variables: Vec<ASTVariable> = Vec::new();
 		let mut ident = self.skip_white().unwrap();
 		while ident.type_() != TokenType::RightParen {
 			// We don't need the type right now so just ignore it
-			if ident.type_() != TokenType::Ident || ident.value() != "Int32" {
-				panic!("Expected Int32 type function argument {ident:#?}");
+			if ident.type_() != TokenType::Ident {
+				panic!("Expected identifier {ident:#?}");
 			}
+
+			let ast_type = self.parse_ast_type(&ident);
 
 			ident = self.skip_white().unwrap();
 			if ident.type_() != TokenType::Ident {
 				panic!("Expected identfier");
 			}
 
-			args.push(ident.value().into());
+			args.push(ASTVariable {
+				ast_type: ast_type.clone(),
+				ident: ident.value().into(),
+			});
 			variables.push(ASTVariable {
 				ast_type: ASTType::Int32(ASTInt32Type {}),
 				ident: ident.value().into(),
