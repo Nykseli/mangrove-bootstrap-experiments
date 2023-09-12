@@ -20,6 +20,7 @@ pub struct ASTStringType {
 pub enum ASTType {
 	Int32(ASTInt32Type),
 	String(ASTStringType),
+	Custom(ASTClass),
 }
 
 impl ASTType {
@@ -34,6 +35,7 @@ pub enum ASTFunctionCallArg {
 	Int32(i32),
 	String(String),
 	Ident(String),
+	DottedIdent((String, String)),
 }
 
 #[derive(Debug)]
@@ -99,12 +101,25 @@ pub struct ASTMinus {
 }
 
 #[derive(Debug)]
+pub struct ASTClassInitArg {
+	pub ident: String,
+	pub arg: ASTAssignArg,
+}
+
+#[derive(Debug)]
+pub struct ASTClassInit {
+	pub name: String,
+	pub args: Vec<ASTClassInitArg>,
+}
+
+#[derive(Debug)]
 pub enum ASTAssignmentExpr {
 	/// Single value
 	Arg(ASTAssignArg),
 	Add(ASTAdd),
 	Minus(ASTMinus),
 	FunctionCall(ASTFunctionCall),
+	ClassInit(ASTClassInit),
 }
 
 #[derive(Debug)]
@@ -178,5 +193,24 @@ impl ASTFunction {
 			body,
 			returns,
 		}
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct ASTClassMember {
+	/// Name of the class identifier
+	pub ident: String,
+	pub type_: ASTType,
+}
+
+#[derive(Debug, Clone)]
+pub struct ASTClass {
+	pub name: String,
+	pub members: Vec<ASTClassMember>,
+}
+
+impl ASTClass {
+	pub fn member<'a>(&'a self, name: &'a str) -> Option<&'a ASTClassMember> {
+		self.members.iter().find(|m| m.ident == name)
 	}
 }
