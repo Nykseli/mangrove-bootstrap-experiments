@@ -412,6 +412,26 @@ impl Compiler {
 		function
 	}
 
+	fn add_ctx_variable(ctx: &mut CompileCtx, ident: &str, type_: &ASTType) {
+		match &type_ {
+			ASTType::Int32(_) => (),
+			ASTType::String(_) => {
+				let type_ = ctx.types.iter().find(|t| t.name == "String").unwrap();
+				ctx.vars.push(Variable {
+					ident: ident.into(),
+					type_: type_.clone(),
+				})
+			}
+			ASTType::Custom(class) => {
+				let type_ = ctx.types.iter().find(|t| t.name == class.name).unwrap();
+				ctx.vars.push(Variable {
+					ident: ident.into(),
+					type_: type_.clone(),
+				})
+			}
+		}
+	}
+
 	pub fn compile(&mut self) -> String {
 		let mut instructions = String::new();
 		let types = CompiledType::from_classes(&self.ast.custom_types);
@@ -445,11 +465,10 @@ impl Compiler {
 				instructions.push('\n');
 			}
 
-			if function.args.len() > 0 {
-				for (idx, name) in function.args.iter().enumerate() {
-					body.push_str(&format!("(set_local ${} (local.get {}))\n", name, idx));
-					variables.push_str(&format!("(local ${} i32)\n", name));
-				}
+			for (idx, var) in function.args.iter().enumerate() {
+				body.push_str(&format!("(set_local ${} (local.get {}))\n", var.ident, idx));
+				variables.push_str(&format!("(local ${} i32)\n", var.ident));
+				Self::add_ctx_variable(&mut ctx, &var.ident, &var.ast_type);
 			}
 
 			for block in &function.body.statements {
@@ -467,24 +486,11 @@ impl Compiler {
 							body.push_str(&compiled);
 						}
 
-						match &assign.variable.ast_type {
-							ASTType::Int32(_) => (),
-							ASTType::String(_) => {
-								let type_ = ctx.types.iter().find(|t| t.name == "String").unwrap();
-								ctx.vars.push(Variable {
-									ident: assign.variable.ident.clone(),
-									type_: type_.clone(),
-								})
-							}
-							ASTType::Custom(class) => {
-								let type_ =
-									ctx.types.iter().find(|t| t.name == class.name).unwrap();
-								ctx.vars.push(Variable {
-									ident: assign.variable.ident.clone(),
-									type_: type_.clone(),
-								})
-							}
-						}
+						Self::add_ctx_variable(
+							&mut ctx,
+							&assign.variable.ident,
+							&assign.variable.ast_type,
+						);
 					}
 					ASTBlockStatement::FunctionCall(call) => {
 						if Self::is_special_function(call) {
