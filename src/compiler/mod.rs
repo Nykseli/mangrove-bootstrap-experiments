@@ -28,7 +28,17 @@ impl CompileCtx {
 }
 
 impl ASTAssignArg {
-	fn compile(&self, ctx: &mut CompileCtx) -> String {
+	/// [ident] is Some when the assignment is directly set to a variable
+	/// ```grove
+	/// String foo = "bar"
+	/// //     ^ option will be "foo"
+	/// ```
+	/// It's None when the value is anonymous
+	/// ```grove
+	/// String foo = "bar" + "zoo"
+	/// //           ^ "bar" and "zoo" need to be set to anonymous pointers
+	/// ```
+	fn compile(&self, ctx: &mut CompileCtx, ident: Option<&str>) -> String {
 		match self {
 			ASTAssignArg::Ident(s) => format!("(get_local ${})", s.ident),
 			ASTAssignArg::Static(s) => match &s.value {
@@ -38,18 +48,27 @@ impl ASTAssignArg {
 					let ptr_idx = ctx.ptrs.len();
 					let global = Compiler::add_data(ctx, ASTFunctionCallArg::String(val.into()));
 					let global_addr = global.start;
+					let target = if let Some(ident) = ident {
+						ident.into()
+					} else {
+						format!("__pointer{ptr_idx}")
+					};
 					// call reserve bytes
 					// save stackpointer to offset 0
 					// save length of the string to offset 4
 					let setup = format!(
 						"
-						(set_local $__pointer{ptr_idx} (call $__reserve_bytes (i32.const 8)))
-						(i32.store (get_local $__pointer{ptr_idx}) (i32.const {global_addr}))
-						(i32.store (i32.add (get_local $__pointer{ptr_idx}) (i32.const 4)) (i32.const {data_len}))
+						(set_local ${target} (call $__reserve_bytes (i32.const 8)))
+						(i32.store (get_local ${target}) (i32.const {global_addr}))
+						(i32.store (i32.add (get_local ${target}) (i32.const 4)) (i32.const {data_len}))
 					"
 					);
-					ctx.ptrs.push(Pointer { size: 0, setup });
-					format!("(get_local $__pointer{ptr_idx})")
+
+					ctx.ptrs.push(Pointer {
+						anonymous: ident.is_none(),
+						setup,
+					});
+					format!("(get_local ${target})")
 				}
 			},
 		}
@@ -57,13 +76,18 @@ impl ASTAssignArg {
 }
 
 impl ASTAssignmentExpr {
-	fn compile(&self, ctx: &mut CompileCtx) -> String {
+	///
+	fn compile(&self, ctx: &mut CompileCtx, ident: Option<&str>) -> (bool, String) {
 		match self {
-			ASTAssignmentExpr::Arg(arg) => arg.compile(ctx),
+			ASTAssignmentExpr::Arg(arg) => (true, arg.compile(ctx, ident)),
 			ASTAssignmentExpr::Add(val) => {
 				// Assuming lhs has same type as rhs
 				let function = match &val.lhs {
-					ASTAssignArg::Static(_) => "i32.add",
+					ASTAssignArg::Static(val) => match val.value_type {
+						ASTType::Int32(_) => "i32.add",
+						ASTType::String(_) => "call $__string_concat",
+						ASTType::Custom(_) => unreachable!("Cannot add two custom types"),
+					},
 					ASTAssignArg::Ident(val) => match val.ident_type {
 						ASTType::Int32(_) => "i32.add",
 						ASTType::String(_) => "call $__string_concat",
@@ -71,19 +95,23 @@ impl ASTAssignmentExpr {
 					},
 				};
 
-				format!(
-					"({function} {} {})",
-					val.lhs.compile(ctx),
-					val.rhs.compile(ctx)
+				(
+					true,
+					format!(
+						"({function} {} {})",
+						val.lhs.compile(ctx, None),
+						val.rhs.compile(ctx, None)
+					),
 				)
 			}
-			ASTAssignmentExpr::Minus(val) => {
+			ASTAssignmentExpr::Minus(val) => (
+				true,
 				format!(
 					"(i32.sub {} {})",
-					val.lhs.compile(ctx),
-					val.rhs.compile(ctx)
-				)
-			}
+					val.lhs.compile(ctx, None),
+					val.rhs.compile(ctx, None)
+				),
+			),
 			ASTAssignmentExpr::FunctionCall(func) => {
 				// There's no args at this point
 				let mut arg_str = String::new();
@@ -101,16 +129,20 @@ impl ASTAssignmentExpr {
 					arg_str.push_str(&arg_fmt);
 				}
 
-				format!("(call ${} {})\n", func.name, arg_str)
+				(true, format!("(call ${} {})\n", func.name, arg_str))
 			}
 			ASTAssignmentExpr::ClassInit(class) => {
 				/// We need to collect the arguments first so we can
 				/// set up pointers for static strings etc
 				let mut assign_args = Vec::new();
 				for arg in &class.args {
-					assign_args.push(arg.arg.compile(ctx))
+					// We cannot directly assign static values to structures
+					// so always create anonymous pointer for it if needed
+					assign_args.push(arg.arg.compile(ctx, None))
 				}
 
+				// TODO: support creating an anonymous pointer for return statements
+				let target = ident.expect("ClassInit requires a variable target");
 				// If type is not compiled, it should be a problem with AST
 				let type_ = ctx.types.iter().find(|t| t.name == class.name).unwrap();
 				// TODO: we shouldn't need to clone here
@@ -119,7 +151,7 @@ impl ASTAssignmentExpr {
 				let data_size = type_.total_size();
 				let ptr_idx = ctx.ptrs.len();
 				let mut setup = format!(
-					"\n(set_local $__pointer{ptr_idx} (call $__reserve_bytes (i32.const {data_size})))\n"
+					"\n(set_local ${target} (call $__reserve_bytes (i32.const {data_size})))\n"
 				);
 
 				for (idx, arg) in class.args.iter().enumerate() {
@@ -128,12 +160,11 @@ impl ASTAssignmentExpr {
 					let offset = type_info.type_.offset;
 					let assign_arg = &assign_args[idx];
 					setup.push_str(&format!(
-						"(i32.store (i32.add (get_local $__pointer{ptr_idx}) (i32.const {offset})) {assign_arg})\n",
+						"(i32.store (i32.add (get_local ${target}) (i32.const {offset})) {assign_arg})\n",
 					));
 				}
 
-				ctx.ptrs.push(Pointer { size: 0, setup });
-				format!("(get_local $__pointer{ptr_idx})")
+				(false, setup)
 			}
 		}
 	}
@@ -143,15 +174,15 @@ impl ASTLtStmt {
 	fn compile(&self, ctx: &mut CompileCtx) -> String {
 		format!(
 			"(i32.lt_s {} {})",
-			self.lhs.compile(ctx),
-			self.rhs.compile(ctx)
+			self.lhs.compile(ctx, None),
+			self.rhs.compile(ctx, None)
 		)
 	}
 }
 
 #[derive(Debug, Clone)]
 pub struct Pointer {
-	size: i32,
+	anonymous: bool,
 	/// Allocation instructions
 	setup: String,
 }
@@ -416,11 +447,16 @@ impl Compiler {
 				match block {
 					ASTBlockStatement::Assignment(assign) => {
 						variables.push_str(&format!("(local ${} i32)\n", assign.variable.ident));
-						body.push_str(&format!(
-							"(set_local ${} {})\n",
-							assign.variable.ident,
-							assign.expr.compile(&mut ctx)
-						));
+						let (set_local, compiled) =
+							assign.expr.compile(&mut ctx, Some(&assign.variable.ident));
+						if set_local {
+							body.push_str(&format!(
+								"(set_local ${} {})\n",
+								assign.variable.ident, compiled
+							));
+						} else {
+							body.push_str(&compiled);
+						}
 
 						// TODO: add type information for every type of variable
 						if let ASTAssignmentExpr::ClassInit(class) = &assign.expr {
@@ -441,16 +477,20 @@ impl Compiler {
 							body.push_str(&format!("(call ${} {})\n", call.name, args));
 						}
 					}
-					ASTBlockStatement::Return(stmt) => {
-						body.push_str(&format!("(return {})\n", stmt.expr.compile(&mut ctx)))
-					}
+					ASTBlockStatement::Return(stmt) => body.push_str(&format!(
+						"(return {})\n",
+						stmt.expr.compile(&mut ctx, None).1
+					)),
 					ASTBlockStatement::IfStmt(stmt) => {
 						let mut inner_stmts = String::new();
 						for inner_block in &stmt.block.statements {
 							match inner_block {
-								ASTBlockStatement::Return(inner_stmt) => inner_stmts.push_str(
-									&format!("(return {})\n", inner_stmt.expr.compile(&mut ctx)),
-								),
+								ASTBlockStatement::Return(inner_stmt) => {
+									inner_stmts.push_str(&format!(
+										"(return {})\n",
+										inner_stmt.expr.compile(&mut ctx, None).1
+									))
+								}
 								_ => panic!("Only return in if blocks"),
 							}
 						}
@@ -465,8 +505,10 @@ impl Compiler {
 			}
 
 			instructions.push_str(&variables);
-			for (idx, _) in ctx.ptrs.iter().enumerate() {
-				instructions.push_str(&format!("(local $__pointer{} i32)\n", idx));
+			for (idx, ptr) in ctx.ptrs.iter().enumerate() {
+				if ptr.anonymous {
+					instructions.push_str(&format!("(local $__pointer{} i32)\n", idx));
+				}
 			}
 			for pointer in &ctx.ptrs {
 				instructions.push_str(&pointer.setup);
