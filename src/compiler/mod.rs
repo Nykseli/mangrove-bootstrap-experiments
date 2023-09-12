@@ -270,7 +270,16 @@ pub struct CompiledType {
 
 impl CompiledType {
 	fn from_classes(classes: &Vec<ASTClass>) -> Vec<Self> {
-		let mut types = Vec::new();
+		// Start with internal types
+		let mut types: Vec<CompiledType> = vec![CompiledType {
+			name: "String".into(),
+			members: vec![{
+				CompiledMember {
+					ident: "length".into(),
+					type_: TypeInfo { size: 4, offset: 4 },
+				}
+			}],
+		}];
 
 		for class in classes {
 			let mut offset: i32 = 0;
@@ -458,15 +467,24 @@ impl Compiler {
 							body.push_str(&compiled);
 						}
 
-						// TODO: add type information for every type of variable
-						if let ASTAssignmentExpr::ClassInit(class) = &assign.expr {
-							let type_ = ctx.types.iter().find(|t| t.name == class.name).unwrap();
-							ctx.vars.push(Variable {
-								ident: assign.variable.ident.clone(),
-								type_: type_.clone(),
-							})
+						match &assign.variable.ast_type {
+							ASTType::Int32(_) => (),
+							ASTType::String(_) => {
+								let type_ = ctx.types.iter().find(|t| t.name == "String").unwrap();
+								ctx.vars.push(Variable {
+									ident: assign.variable.ident.clone(),
+									type_: type_.clone(),
+								})
+							}
+							ASTType::Custom(class) => {
+								let type_ =
+									ctx.types.iter().find(|t| t.name == class.name).unwrap();
+								ctx.vars.push(Variable {
+									ident: assign.variable.ident.clone(),
+									type_: type_.clone(),
+								})
+							}
 						}
-						/*  */
 					}
 					ASTBlockStatement::FunctionCall(call) => {
 						if Self::is_special_function(call) {
