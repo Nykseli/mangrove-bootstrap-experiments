@@ -25,6 +25,13 @@ pub enum ASTType {
 
 impl ASTType {
 	pub fn has_same_type(&self, other: &Self) -> bool {
+		// Custom types should be equal if they have the same name
+		if let Self::Custom(c1) = self {
+			if let Self::Custom(c2) = other {
+				return c1.name == c2.name;
+			}
+		}
+
 		discriminant(self) == discriminant(other)
 	}
 }
@@ -65,6 +72,14 @@ pub struct ASTAssignIdent {
 }
 
 #[derive(Debug)]
+pub struct ASTAssignDottedIdent {
+	/// Name of the identifier
+	pub ident: (String, String),
+	/// Type of the identifier
+	pub ident_type: ASTType,
+}
+
+#[derive(Debug)]
 pub enum StaticValue {
 	Int32(i32),
 	String(String),
@@ -80,6 +95,7 @@ pub struct ASTStaticAssign {
 pub enum ASTAssignArg {
 	Static(ASTStaticAssign),
 	Ident(ASTAssignIdent),
+	DottedIdent(ASTAssignDottedIdent),
 }
 
 impl ASTAssignArg {
@@ -103,7 +119,7 @@ pub struct ASTMinus {
 #[derive(Debug)]
 pub struct ASTClassInitArg {
 	pub ident: String,
-	pub arg: ASTAssignArg,
+	pub arg: ASTAssignmentExpr,
 }
 
 #[derive(Debug)]
