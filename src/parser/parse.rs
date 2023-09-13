@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use crate::ast::{
 	ASTAdd, ASTAssignArg, ASTAssignDottedIdent, ASTAssignIdent, ASTAssignment, ASTAssignmentExpr,
 	ASTBlock, ASTBlockStatement, ASTClass, ASTClassInit, ASTClassInitArg, ASTClassMember,
@@ -289,7 +291,30 @@ impl Parser {
 			ident: ident.value().into(),
 		};
 
-		ASTAssignment { expr, variable }
+		ASTAssignment {
+			expr,
+			variable,
+			reassignment: false,
+		}
+	}
+
+	fn parse_reassignment(
+		&mut self,
+		ctx: &BlockCtx,
+		ast_type: ASTType,
+		ident: Token,
+	) -> ASTAssignment {
+		let expr = self.parse_assign_expr(ctx, &ast_type);
+		let variable = ASTVariable {
+			ast_type,
+			ident: ident.value().into(),
+		};
+
+		ASTAssignment {
+			expr,
+			variable,
+			reassignment: true,
+		}
 	}
 
 	fn parse_return_statement(&mut self, ctx: &BlockCtx) -> ASTReturn {
@@ -349,6 +374,16 @@ impl Parser {
 				} else if next.type_() == TokenType::Ident {
 					let assign = self.parse_assignment(&ctx, statement, next);
 					ctx.variables.push(assign.variable.clone());
+					statements.push(ASTBlockStatement::Assignment(assign))
+				} else if next.type_() == TokenType::AssignOp {
+					// Assign into existing variable
+					let var = ctx
+						.variables
+						.iter()
+						.find(|v| v.ident == statement.value())
+						.expect(&format!("Variable '{}' not defined", statement.value()));
+
+					let assign = self.parse_reassignment(&ctx, var.ast_type.clone(), statement);
 					statements.push(ASTBlockStatement::Assignment(assign))
 				} else {
 					panic!("Expected left paren or identifier {next:#?}")
