@@ -71,6 +71,12 @@ impl ASTAssignArg {
 					format!("(get_local ${target})")
 				}
 			},
+			ASTAssignArg::DottedIdent(dotted_ident) => {
+				let (ident, dotted) = &dotted_ident.ident;
+				let offset = ctx.dottet_ident_type((ident, dotted)).offset;
+				// Dotted value is ident + offset to it
+				format!("(i32.load (i32.add (get_local ${ident}) (i32.const {offset})))")
+			}
 		}
 	}
 }
@@ -82,17 +88,16 @@ impl ASTAssignmentExpr {
 			ASTAssignmentExpr::Arg(arg) => (true, arg.compile(ctx, ident)),
 			ASTAssignmentExpr::Add(val) => {
 				// Assuming lhs has same type as rhs
-				let function = match &val.lhs {
-					ASTAssignArg::Static(val) => match val.value_type {
-						ASTType::Int32(_) => "i32.add",
-						ASTType::String(_) => "call $__string_concat",
-						ASTType::Custom(_) => unreachable!("Cannot add two custom types"),
-					},
-					ASTAssignArg::Ident(val) => match val.ident_type {
-						ASTType::Int32(_) => "i32.add",
-						ASTType::String(_) => "call $__string_concat",
-						ASTType::Custom(_) => unreachable!("Cannot add two custom types"),
-					},
+				let fn_type = match &val.lhs {
+					ASTAssignArg::Static(val) => &val.value_type,
+					ASTAssignArg::Ident(val) => &val.ident_type,
+					ASTAssignArg::DottedIdent(val) => &val.ident_type,
+				};
+
+				let function = match fn_type {
+					ASTType::Int32(_) => "i32.add",
+					ASTType::String(_) => "call $__string_concat",
+					ASTType::Custom(_) => unreachable!("Cannot add two custom types"),
 				};
 
 				(
@@ -158,7 +163,9 @@ impl ASTAssignmentExpr {
 					// If type_info is not compiled, it should be a problem with AST
 					let type_info = type_.members.iter().find(|m| m.ident == arg.ident).unwrap();
 					let offset = type_info.type_.offset;
-					let assign_arg = &assign_args[idx];
+					// TODO: check if the return type should set_local
+					//       this should be Arg or Add.
+					let assign_arg = &assign_args[idx].1;
 					setup.push_str(&format!(
 						"(i32.store (i32.add (get_local ${target}) (i32.const {offset})) {assign_arg})\n",
 					));
