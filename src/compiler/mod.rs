@@ -481,7 +481,10 @@ impl Compiler {
 			for block in &function.body.statements {
 				match block {
 					ASTBlockStatement::Assignment(assign) => {
-						variables.push_str(&format!("(local ${} i32)\n", assign.variable.ident));
+						if !assign.reassignment {
+							variables
+								.push_str(&format!("(local ${} i32)\n", assign.variable.ident));
+						}
 						let (set_local, compiled) =
 							assign.expr.compile(&mut ctx, Some(&assign.variable.ident));
 						if set_local {
