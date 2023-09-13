@@ -142,6 +142,8 @@ pub enum ASTAssignmentExpr {
 pub struct ASTAssignment {
 	pub variable: ASTVariable,
 	pub expr: ASTAssignmentExpr,
+	/// Is value being reassigned or defined for the first time
+	pub reassignment: bool,
 }
 
 #[derive(Debug)]
