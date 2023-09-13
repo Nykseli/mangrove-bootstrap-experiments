@@ -1,8 +1,8 @@
 use crate::ast::{
-	ASTAdd, ASTAssignArg, ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock,
-	ASTBlockStatement, ASTClass, ASTClassInit, ASTClassInitArg, ASTClassMember, ASTFunction,
-	ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTInt32Type, ASTLtStmt, ASTMinus, ASTReturn,
-	ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
+	ASTAdd, ASTAssignArg, ASTAssignDottedIdent, ASTAssignIdent, ASTAssignment, ASTAssignmentExpr,
+	ASTBlock, ASTBlockStatement, ASTClass, ASTClassInit, ASTClassInitArg, ASTClassMember,
+	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTInt32Type, ASTLtStmt, ASTMinus,
+	ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
 };
 
 use super::tokeniser::Tokeniser;
@@ -136,6 +136,38 @@ impl Parser {
 				})
 			}
 			TokenType::Ident => {
+				if self.skip_white_peek().unwrap().type_() == TokenType::Dot {
+					let ident: String = value.value().into();
+					// skip the dot
+					self.skip_white().unwrap();
+					let dotted = self.skip_white().unwrap();
+					if dotted.type_() != TokenType::Ident {
+						panic!("Expected ident after dot");
+					}
+
+					if let Some(var) = ctx.variables.iter().find(|v| v.ident == value.value()) {
+						// TODO: Buildin type member checking
+						if let ASTType::Custom(class) = &var.ast_type {
+							let member = class
+								.member(dotted.value())
+								.expect(&format!("{} member not found", dotted.value()));
+							if !member.type_.has_same_type(target_type) {
+								panic!("Different types: {target_type:#?} {:#?}", member.type_)
+							}
+						} else {
+							panic!("Only custom type dotted args implemented");
+						}
+					} else {
+						// Panic for everything else execpt functions
+						panic!("Variable {} not found!", value.value());
+					};
+
+					return ASTAssignArg::DottedIdent(ASTAssignDottedIdent {
+						ident: (ident, dotted.value().into()),
+						ident_type: target_type.clone(),
+					});
+				}
+
 				if let Some(var) = ctx.variables.iter().find(|v| v.ident == value.value()) {
 					if !var.ast_type.has_same_type(target_type) {
 						panic!("Different types: {target_type:#?} {:#?}", var.ast_type)
@@ -176,9 +208,8 @@ impl Parser {
 			if token.type_() != TokenType::Colon {
 				panic!("Expected colon");
 			}
-			token = self.skip_white().unwrap();
 
-			let arg = self.parse_value_token(ctx, &member.type_, &token);
+			let arg = self.parse_assign_expr(ctx, &member.type_);
 			inits.push(ASTClassInitArg { arg, ident });
 
 			token = self.skip_white().unwrap();
@@ -373,7 +404,7 @@ impl Parser {
 				ident: ident.value().into(),
 			});
 			variables.push(ASTVariable {
-				ast_type: ASTType::Int32(ASTInt32Type {}),
+				ast_type: ast_type,
 				ident: ident.value().into(),
 			});
 
