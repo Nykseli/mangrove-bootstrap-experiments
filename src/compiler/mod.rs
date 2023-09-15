@@ -481,16 +481,32 @@ impl Compiler {
 		for block in &function.body.statements {
 			match block {
 				ASTBlockStatement::Assignment(assign) => {
-					let local_variable: String = (&assign.variable.ident).try_into().unwrap();
-					if !assign.reassignment {
-						variables.push_str(&format!("(local ${} i32)\n", local_variable));
-					}
-					let (set_local, compiled) =
-						assign.expr.compile(ctx, Some(&assign.variable.ident));
-					if set_local {
-						body.push_str(&format!("(set_local ${} {})\n", local_variable, compiled));
-					} else {
-						body.push_str(&compiled);
+					match &assign.variable.ident {
+						ASTIdent::Ident(local_variable) => {
+							if !assign.reassignment {
+								variables.push_str(&format!("(local ${} i32)\n", local_variable));
+							}
+							let (set_local, compiled) =
+								assign.expr.compile(ctx, Some(&assign.variable.ident));
+							if set_local {
+								body.push_str(&format!(
+									"(set_local ${} {})\n",
+									local_variable, compiled
+								));
+							} else {
+								body.push_str(&compiled);
+							}
+						}
+						ASTIdent::DottedIdent((ident, dotted)) => {
+							// dotted assignment cannot ever be set locally
+							let (_, compiled) =
+								assign.expr.compile(ctx, Some(&assign.variable.ident));
+							let offset = ctx.dottet_ident_type((ident, dotted)).offset;
+
+							body.push_str(
+								&format!("(i32.store (i32.add (get_local ${ident}) (i32.const {offset})) {compiled})\n")
+							);
+						}
 					}
 
 					Self::add_ctx_variable(ctx, &assign.variable.ident, &assign.variable.ast_type);
@@ -502,7 +518,13 @@ impl Compiler {
 					} else {
 						let args = Self::compile_args(ctx, &call.args);
 						let name = if let Some(var) = &call.variable {
-							format!("__{}_class_{}", var.ast_type.name(), call.name)
+							let var_name: String = (&var.ident).try_into().unwrap();
+							format!(
+								"__{}_class_{} (get_local ${})",
+								var.ast_type.name(),
+								call.name,
+								var_name
+							)
 						} else {
 							call.name.clone()
 						};
