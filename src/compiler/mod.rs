@@ -1,7 +1,7 @@
 use crate::{
 	ast::{
 		ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTClass, ASTFunction, ASTFunctionCall,
-		ASTFunctionCallArg, ASTLtStmt, ASTType, StaticValue,
+		ASTFunctionCallArg, ASTIdent, ASTLtStmt, ASTType, StaticValue,
 	},
 	parser::parse::Parser,
 };
@@ -38,7 +38,7 @@ impl ASTAssignArg {
 	/// String foo = "bar" + "zoo"
 	/// //           ^ "bar" and "zoo" need to be set to anonymous pointers
 	/// ```
-	fn compile(&self, ctx: &mut CompileCtx, ident: Option<&str>) -> String {
+	fn compile(&self, ctx: &mut CompileCtx, ident: Option<&ASTIdent>) -> String {
 		match self {
 			ASTAssignArg::Ident(s) => format!("(get_local ${})", s.ident),
 			ASTAssignArg::Static(s) => match &s.value {
@@ -49,7 +49,7 @@ impl ASTAssignArg {
 					let global = Compiler::add_data(ctx, ASTFunctionCallArg::String(val.into()));
 					let global_addr = global.start;
 					let target = if let Some(ident) = ident {
-						ident.into()
+						ident.try_into().unwrap()
 					} else {
 						format!("__pointer{ptr_idx}")
 					};
@@ -83,7 +83,7 @@ impl ASTAssignArg {
 
 impl ASTAssignmentExpr {
 	///
-	fn compile(&self, ctx: &mut CompileCtx, ident: Option<&str>) -> (bool, String) {
+	fn compile(&self, ctx: &mut CompileCtx, ident: Option<&ASTIdent>) -> (bool, String) {
 		match self {
 			ASTAssignmentExpr::Arg(arg) => (true, arg.compile(ctx, ident)),
 			ASTAssignmentExpr::Add(val) => {
@@ -155,8 +155,10 @@ impl ASTAssignmentExpr {
 
 				let data_size = type_.total_size();
 				let ptr_idx = ctx.ptrs.len();
+				let local_target: String = target.try_into().unwrap();
 				let mut setup = format!(
-					"\n(set_local ${target} (call $__reserve_bytes (i32.const {data_size})))\n"
+					"\n(set_local ${} (call $__reserve_bytes (i32.const {data_size})))\n",
+					local_target
 				);
 
 				for (idx, arg) in class.args.iter().enumerate() {
@@ -166,8 +168,10 @@ impl ASTAssignmentExpr {
 					// TODO: check if the return type should set_local
 					//       this should be Arg or Add.
 					let assign_arg = &assign_args[idx].1;
+					let arg_target: String = target.try_into().unwrap();
 					setup.push_str(&format!(
-						"(i32.store (i32.add (get_local ${target}) (i32.const {offset})) {assign_arg})\n",
+						"(i32.store (i32.add (get_local ${}) (i32.const {offset})) {assign_arg})\n",
+						arg_target
 					));
 				}
 
@@ -196,7 +200,7 @@ pub struct Pointer {
 
 #[derive(Debug, Clone)]
 pub struct Variable {
-	ident: String,
+	ident: ASTIdent,
 	type_: CompiledType,
 }
 
@@ -265,7 +269,7 @@ pub struct TypeInfo {
 
 #[derive(Debug, Clone)]
 pub struct CompiledMember {
-	ident: String,
+	ident: ASTIdent,
 	type_: TypeInfo,
 }
 
@@ -302,7 +306,7 @@ impl CompiledType {
 				};
 
 				members.push(CompiledMember {
-					ident,
+					ident: ident.into(),
 					type_: TypeInfo { size, offset },
 				});
 				offset += size;
@@ -419,24 +423,126 @@ impl Compiler {
 		function
 	}
 
-	fn add_ctx_variable(ctx: &mut CompileCtx, ident: &str, type_: &ASTType) {
+	fn add_ctx_variable(ctx: &mut CompileCtx, ident: &ASTIdent, type_: &ASTType) {
 		match &type_ {
 			ASTType::Int32(_) => (),
 			ASTType::String(_) => {
 				let type_ = ctx.types.iter().find(|t| t.name == "String").unwrap();
 				ctx.vars.push(Variable {
-					ident: ident.into(),
+					ident: ident.clone(),
 					type_: type_.clone(),
 				})
 			}
 			ASTType::Custom(class) => {
 				let type_ = ctx.types.iter().find(|t| t.name == class.name).unwrap();
 				ctx.vars.push(Variable {
-					ident: ident.into(),
+					ident: ident.clone(),
 					type_: type_.clone(),
 				})
 			}
 		}
+	}
+
+	fn compile_function(
+		ctx: &mut CompileCtx,
+		instructions: &mut String,
+		fn_name: &str,
+		function: &ASTFunction,
+	) {
+		// pointer and variables are local to functions
+		ctx.ptrs = Vec::new();
+		ctx.vars = Vec::new();
+
+		let mut variables = String::new();
+		let mut body = String::new();
+
+		instructions.push_str(&format!("(func ${}", fn_name));
+		if function.args.len() > 0 {
+			instructions.push_str("(param");
+			for _ in &function.args {
+				instructions.push_str(" i32");
+			}
+			instructions.push(')');
+		}
+
+		if function.returns {
+			instructions.push_str("(result i32)\n");
+		} else {
+			instructions.push('\n');
+		}
+
+		for (idx, var) in function.args.iter().enumerate() {
+			let var_ident: String = (&var.ident).try_into().unwrap();
+			body.push_str(&format!("(set_local ${} (local.get {}))\n", var_ident, idx));
+			variables.push_str(&format!("(local ${} i32)\n", var_ident));
+			Self::add_ctx_variable(ctx, &var.ident, &var.ast_type);
+		}
+
+		for block in &function.body.statements {
+			match block {
+				ASTBlockStatement::Assignment(assign) => {
+					let local_variable: String = (&assign.variable.ident).try_into().unwrap();
+					if !assign.reassignment {
+						variables.push_str(&format!("(local ${} i32)\n", local_variable));
+					}
+					let (set_local, compiled) =
+						assign.expr.compile(ctx, Some(&assign.variable.ident));
+					if set_local {
+						body.push_str(&format!("(set_local ${} {})\n", local_variable, compiled));
+					} else {
+						body.push_str(&compiled);
+					}
+
+					Self::add_ctx_variable(ctx, &assign.variable.ident, &assign.variable.ast_type);
+				}
+				ASTBlockStatement::FunctionCall(call) => {
+					if Self::is_special_function(&call) {
+						let special = Self::compile_special_function(ctx, &call.args);
+						body.push_str(&special);
+					} else {
+						let args = Self::compile_args(ctx, &call.args);
+						let name = if let Some(var) = &call.variable {
+							format!("__{}_class_{}", var.ast_type.name(), call.name)
+						} else {
+							call.name.clone()
+						};
+						body.push_str(&format!("(call ${} {})\n", name, args));
+					}
+				}
+				ASTBlockStatement::Return(stmt) => {
+					body.push_str(&format!("(return {})\n", stmt.expr.compile(ctx, None).1))
+				}
+				ASTBlockStatement::IfStmt(stmt) => {
+					let mut inner_stmts = String::new();
+					for inner_block in &stmt.block.statements {
+						match inner_block {
+							ASTBlockStatement::Return(inner_stmt) => inner_stmts.push_str(
+								&format!("(return {})\n", inner_stmt.expr.compile(ctx, None).1),
+							),
+							_ => panic!("Only return in if blocks"),
+						}
+					}
+
+					body.push_str(&format!(
+						"(if {} (then {}))\n",
+						stmt.conditional.compile(ctx),
+						inner_stmts
+					))
+				}
+			}
+		}
+
+		instructions.push_str(&variables);
+		for (idx, ptr) in ctx.ptrs.iter().enumerate() {
+			if ptr.anonymous {
+				instructions.push_str(&format!("(local $__pointer{} i32)\n", idx));
+			}
+		}
+		for pointer in &ctx.ptrs {
+			instructions.push_str(&pointer.setup);
+		}
+		instructions.push_str(&body);
+		instructions.push(')');
 	}
 
 	pub fn compile(&mut self) -> String {
@@ -449,106 +555,15 @@ impl Compiler {
 			vars: Vec::new(),
 		};
 
+		for class in &self.ast.custom_types {
+			for method in &class.methods {
+				let fn_name = format!("__{}_class_{}", class.name, method.name);
+				Self::compile_function(&mut ctx, &mut instructions, &fn_name, method);
+			}
+		}
+
 		for function in &self.ast.nodes {
-			// pointer and variables are local to functions
-			ctx.ptrs = Vec::new();
-			ctx.vars = Vec::new();
-
-			let mut variables = String::new();
-			let mut body = String::new();
-
-			instructions.push_str(&format!("(func ${}", function.name));
-			if function.args.len() > 0 {
-				instructions.push_str("(param");
-				for _ in &function.args {
-					instructions.push_str(" i32");
-				}
-				instructions.push(')');
-			}
-
-			if function.returns {
-				instructions.push_str("(result i32)\n");
-			} else {
-				instructions.push('\n');
-			}
-
-			for (idx, var) in function.args.iter().enumerate() {
-				body.push_str(&format!("(set_local ${} (local.get {}))\n", var.ident, idx));
-				variables.push_str(&format!("(local ${} i32)\n", var.ident));
-				Self::add_ctx_variable(&mut ctx, &var.ident, &var.ast_type);
-			}
-
-			for block in &function.body.statements {
-				match block {
-					ASTBlockStatement::Assignment(assign) => {
-						if !assign.reassignment {
-							variables
-								.push_str(&format!("(local ${} i32)\n", assign.variable.ident));
-						}
-						let (set_local, compiled) =
-							assign.expr.compile(&mut ctx, Some(&assign.variable.ident));
-						if set_local {
-							body.push_str(&format!(
-								"(set_local ${} {})\n",
-								assign.variable.ident, compiled
-							));
-						} else {
-							body.push_str(&compiled);
-						}
-
-						Self::add_ctx_variable(
-							&mut ctx,
-							&assign.variable.ident,
-							&assign.variable.ast_type,
-						);
-					}
-					ASTBlockStatement::FunctionCall(call) => {
-						if Self::is_special_function(call) {
-							let special = Self::compile_special_function(&mut ctx, &call.args);
-							body.push_str(&special);
-						} else {
-							let args = Self::compile_args(&mut ctx, &call.args);
-							body.push_str(&format!("(call ${} {})\n", call.name, args));
-						}
-					}
-					ASTBlockStatement::Return(stmt) => body.push_str(&format!(
-						"(return {})\n",
-						stmt.expr.compile(&mut ctx, None).1
-					)),
-					ASTBlockStatement::IfStmt(stmt) => {
-						let mut inner_stmts = String::new();
-						for inner_block in &stmt.block.statements {
-							match inner_block {
-								ASTBlockStatement::Return(inner_stmt) => {
-									inner_stmts.push_str(&format!(
-										"(return {})\n",
-										inner_stmt.expr.compile(&mut ctx, None).1
-									))
-								}
-								_ => panic!("Only return in if blocks"),
-							}
-						}
-
-						body.push_str(&format!(
-							"(if {} (then {}))\n",
-							stmt.conditional.compile(&mut ctx),
-							inner_stmts
-						))
-					}
-				}
-			}
-
-			instructions.push_str(&variables);
-			for (idx, ptr) in ctx.ptrs.iter().enumerate() {
-				if ptr.anonymous {
-					instructions.push_str(&format!("(local $__pointer{} i32)\n", idx));
-				}
-			}
-			for pointer in &ctx.ptrs {
-				instructions.push_str(&pointer.setup);
-			}
-			instructions.push_str(&body);
-			instructions.push(')');
+			Self::compile_function(&mut ctx, &mut instructions, &function.name, function);
 		}
 
 		let data_end = if let Some(end) = ctx.global_data.iter().last() {
