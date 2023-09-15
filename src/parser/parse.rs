@@ -388,8 +388,24 @@ impl Parser {
 				ASTBlockStatement::FunctionCall(fn_call)
 			} else {
 				// reassign into dotted ident
-				let dotted = ASTIdent::DottedIdent((next.value().into(), dotted.value().into()));
-				let assign = self.parse_reassignment(&ctx, var.ast_type.clone(), dotted);
+				self.skip_white().unwrap();
+				let dotted_type = match &var.ast_type {
+					ASTType::Int32(_) => todo!(),
+					ASTType::String(_) => todo!(),
+					ASTType::Custom(class) => class
+						.member(dotted.value())
+						.expect(&format!(
+							"Class {} doesn't have a member {}",
+							class.name,
+							dotted.value()
+						))
+						.type_
+						.clone(),
+				};
+
+				let dotted =
+					ASTIdent::DottedIdent((statement.value().into(), dotted.value().into()));
+				let assign = self.parse_reassignment(&ctx, dotted_type.clone(), dotted);
 				ASTBlockStatement::Assignment(assign)
 			}
 		} else {
@@ -435,7 +451,8 @@ impl Parser {
 		ASTBlock::new(statements, ctx.variables)
 	}
 
-	fn parse_function(&mut self) -> ASTFunction {
+	/// This refers to the current class/object
+	fn parse_function(&mut self, this: Option<ASTVariable>) -> ASTFunction {
 		let ident = self.skip_white().unwrap();
 		let name = if ident.type_() == TokenType::Ident {
 			ident.value()
@@ -449,8 +466,13 @@ impl Parser {
 		}
 
 		// TODO: args should be the same as variables
-		let mut args: Vec<ASTVariable> = Vec::new();
-		let mut variables: Vec<ASTVariable> = Vec::new();
+		let mut args: Vec<ASTVariable> = if let Some(this) = this {
+			vec![this]
+		} else {
+			Vec::new()
+		};
+
+		let mut variables: Vec<ASTVariable> = args.clone();
 		let mut ident = self.skip_white().unwrap();
 		while ident.type_() != TokenType::RightParen {
 			// We don't need the type right now so just ignore it
@@ -501,7 +523,7 @@ impl Parser {
 
 	fn parse_class(&mut self) -> ASTClass {
 		let ident = self.skip_white().unwrap();
-		let name = if ident.type_() == TokenType::Ident {
+		let name: String = if ident.type_() == TokenType::Ident {
 			ident.value().into()
 		} else {
 			panic!("Expected identifier after 'class'")
@@ -517,7 +539,19 @@ impl Parser {
 		let mut ident = self.skip_white().unwrap();
 		while ident.type_() != TokenType::RightBrace {
 			if ident.type_() == TokenType::FunctionDef {
-				let method = self.parse_function();
+				// TODO: this creates a lot copies, optimise it
+				let class = ASTType::Custom(ASTClass {
+					members: members.clone(),
+					name: name.clone(),
+					methods: Vec::new(),
+				});
+
+				let var = ASTVariable {
+					ident: "this".into(),
+					ast_type: class,
+				};
+
+				let method = self.parse_function(Some(var));
 				methods.push(method);
 				ident = self.skip_white().unwrap();
 				continue;
@@ -557,7 +591,7 @@ impl Parser {
 			if token.type_() == TokenType::Eof {
 				break;
 			} else if token.type_() == TokenType::FunctionDef {
-				let function = self.parse_function();
+				let function = self.parse_function(None);
 				self.nodes.push(function);
 			} else if token.type_() == TokenType::ClassDef {
 				let class = self.parse_class();
