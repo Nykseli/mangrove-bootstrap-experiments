@@ -3,8 +3,8 @@ use std::fmt::format;
 use crate::ast::{
 	ASTAdd, ASTAssignArg, ASTAssignDottedIdent, ASTAssignIdent, ASTAssignment, ASTAssignmentExpr,
 	ASTBlock, ASTBlockStatement, ASTClass, ASTClassInit, ASTClassInitArg, ASTClassMember,
-	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIfStmt, ASTInt32Type, ASTLtStmt, ASTMinus,
-	ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
+	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIdent, ASTIfStmt, ASTInt32Type, ASTLtStmt,
+	ASTMinus, ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
 };
 
 use super::tokeniser::Tokeniser;
@@ -13,6 +13,15 @@ use super::types::{Token, TokenType};
 #[derive(Debug)]
 struct BlockCtx {
 	variables: Vec<ASTVariable>,
+}
+
+impl BlockCtx {
+	fn find_variable<'a>(&'a self, name: &str) -> &'a ASTVariable {
+		self.variables
+			.iter()
+			.find(|v| v.ident == name)
+			.expect(&format!("Variable '{}' not defined", name))
+	}
 }
 
 #[derive(Debug)]
@@ -55,7 +64,12 @@ impl Parser {
 		Ok(next)
 	}
 
-	fn parse_function_call(&mut self, name: &str, used: bool) -> ASTFunctionCall {
+	fn parse_function_call(
+		&mut self,
+		variable: Option<ASTVariable>,
+		name: &str,
+		used: bool,
+	) -> ASTFunctionCall {
 		// left paren is handled by parse_block for now
 		/* let left_paren = self.skip_white().unwrap();
 		if left_paren.type_() != TokenType::LeftParen {
@@ -101,7 +115,7 @@ impl Parser {
 			panic!("Expected right paren");
 		}
 
-		ASTFunctionCall::new(name.into(), args, used)
+		ASTFunctionCall::new(name.into(), variable, args, used)
 	}
 
 	fn parse_value_token(
@@ -251,7 +265,7 @@ impl Parser {
 			TokenType::LeftParen => {
 				// Skip the LeftParen
 				self.skip_white().unwrap();
-				let fn_call = self.parse_function_call(value_token.value(), true);
+				let fn_call = self.parse_function_call(None, value_token.value(), true);
 				ASTAssignmentExpr::FunctionCall(fn_call)
 			}
 			_ => ASTAssignmentExpr::Arg(value),
@@ -276,7 +290,7 @@ impl Parser {
 		&mut self,
 		ctx: &BlockCtx,
 		type_token: Token,
-		ident: Token,
+		ident: ASTIdent,
 	) -> ASTAssignment {
 		let ast_type = self.parse_ast_type(&type_token);
 
@@ -286,10 +300,7 @@ impl Parser {
 		}
 
 		let expr = self.parse_assign_expr(ctx, &ast_type);
-		let variable = ASTVariable {
-			ast_type,
-			ident: ident.value().into(),
-		};
+		let variable = ASTVariable { ast_type, ident };
 
 		ASTAssignment {
 			expr,
@@ -302,13 +313,10 @@ impl Parser {
 		&mut self,
 		ctx: &BlockCtx,
 		ast_type: ASTType,
-		ident: Token,
+		ident: ASTIdent,
 	) -> ASTAssignment {
 		let expr = self.parse_assign_expr(ctx, &ast_type);
-		let variable = ASTVariable {
-			ast_type,
-			ident: ident.value().into(),
-		};
+		let variable = ASTVariable { ast_type, ident };
 
 		ASTAssignment {
 			expr,
@@ -346,6 +354,49 @@ impl Parser {
 		ASTIfStmt { block, conditional }
 	}
 
+	fn parse_ident_statement(&mut self, ctx: &mut BlockCtx, statement: Token) -> ASTBlockStatement {
+		let next = self.skip_white().unwrap();
+		if next.type_() == TokenType::LeftParen {
+			let fn_call = self.parse_function_call(None, statement.value(), false);
+			ASTBlockStatement::FunctionCall(fn_call)
+		} else if next.type_() == TokenType::Ident {
+			// Ident after type
+			let next = ASTIdent::Ident(next.value().into());
+			let assign = self.parse_assignment(&ctx, statement, next);
+			ctx.variables.push(assign.variable.clone());
+			ASTBlockStatement::Assignment(assign)
+		} else if next.type_() == TokenType::AssignOp {
+			// Assign into existing variable
+			let var = ctx.find_variable(statement.value());
+			let assign =
+				self.parse_reassignment(&ctx, var.ast_type.clone(), statement.value().into());
+			ASTBlockStatement::Assignment(assign)
+		} else if next.type_() == TokenType::Dot {
+			// Parsing dotted indet/expression
+			let dotted = self.skip_white().unwrap();
+			if dotted.type_() != TokenType::Ident {
+				panic!("Expected ident: {dotted:#?}");
+			}
+
+			let next_peek = self.skip_white_peek().unwrap();
+			let var = ctx.find_variable(statement.value());
+
+			// Ident function call
+			if next_peek.type_() == TokenType::LeftParen {
+				self.skip_white().unwrap();
+				let fn_call = self.parse_function_call(Some(var.clone()), dotted.value(), false);
+				ASTBlockStatement::FunctionCall(fn_call)
+			} else {
+				// reassign into dotted ident
+				let dotted = ASTIdent::DottedIdent((next.value().into(), dotted.value().into()));
+				let assign = self.parse_reassignment(&ctx, var.ast_type.clone(), dotted);
+				ASTBlockStatement::Assignment(assign)
+			}
+		} else {
+			panic!("Expected left paren or identifier {next:#?}")
+		}
+	}
+
 	fn parse_block(&mut self, variables: Option<Vec<ASTVariable>>) -> ASTBlock {
 		let left_brace = self.skip_white().unwrap();
 		if left_brace.type_() != TokenType::LeftBrace {
@@ -367,27 +418,7 @@ impl Parser {
 			}
 
 			if statement.type_() == TokenType::Ident {
-				let next = self.skip_white().unwrap();
-				if next.type_() == TokenType::LeftParen {
-					let fn_call = self.parse_function_call(statement.value(), false);
-					statements.push(ASTBlockStatement::FunctionCall(fn_call));
-				} else if next.type_() == TokenType::Ident {
-					let assign = self.parse_assignment(&ctx, statement, next);
-					ctx.variables.push(assign.variable.clone());
-					statements.push(ASTBlockStatement::Assignment(assign))
-				} else if next.type_() == TokenType::AssignOp {
-					// Assign into existing variable
-					let var = ctx
-						.variables
-						.iter()
-						.find(|v| v.ident == statement.value())
-						.expect(&format!("Variable '{}' not defined", statement.value()));
-
-					let assign = self.parse_reassignment(&ctx, var.ast_type.clone(), statement);
-					statements.push(ASTBlockStatement::Assignment(assign))
-				} else {
-					panic!("Expected left paren or identifier {next:#?}")
-				}
+				statements.push(self.parse_ident_statement(&mut ctx, statement))
 			} else if statement.type_() == TokenType::ReturnStmt {
 				let return_stmt = self.parse_return_statement(&ctx);
 				statements.push(ASTBlockStatement::Return(return_stmt))
@@ -482,10 +513,18 @@ impl Parser {
 		}
 
 		let mut members: Vec<ASTClassMember> = Vec::new();
+		let mut methods: Vec<ASTFunction> = Vec::new();
 		let mut ident = self.skip_white().unwrap();
 		while ident.type_() != TokenType::RightBrace {
+			if ident.type_() == TokenType::FunctionDef {
+				let method = self.parse_function();
+				methods.push(method);
+				ident = self.skip_white().unwrap();
+				continue;
+			}
+
 			if ident.type_() != TokenType::Ident {
-				panic!("Expected ident in funciton");
+				panic!("Expected ident in funciton {ident:#?}");
 			}
 
 			// TODO: self reference in types
@@ -504,7 +543,11 @@ impl Parser {
 			ident = self.skip_white().unwrap();
 		}
 
-		ASTClass { name, members }
+		ASTClass {
+			name,
+			members,
+			methods,
+		}
 	}
 
 	pub fn parse(&mut self) {
