@@ -24,6 +24,16 @@ pub enum ASTType {
 }
 
 impl ASTType {
+	pub fn name(&self) -> String {
+		match self {
+			ASTType::Int32(_) => "Int32".into(),
+			ASTType::String(_) => "String".into(),
+			ASTType::Custom(class) => class.name.clone(),
+		}
+	}
+}
+
+impl ASTType {
 	pub fn has_same_type(&self, other: &Self) -> bool {
 		// Custom types should be equal if they have the same name
 		if let Self::Custom(c1) = self {
@@ -45,25 +55,33 @@ pub enum ASTFunctionCallArg {
 	DottedIdent((String, String)),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTFunctionCall {
 	pub name: String,
+	/// Is some when function call is a method call
+	pub variable: Option<ASTVariable>,
 	pub args: Vec<ASTFunctionCallArg>,
 	/// is return value used somewhere
 	pub return_used: bool,
 }
 
 impl ASTFunctionCall {
-	pub fn new(name: String, args: Vec<ASTFunctionCallArg>, return_used: bool) -> Self {
+	pub fn new(
+		name: String,
+		variable: Option<ASTVariable>,
+		args: Vec<ASTFunctionCallArg>,
+		return_used: bool,
+	) -> Self {
 		Self {
 			name,
+			variable,
 			args,
 			return_used,
 		}
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTAssignIdent {
 	/// Name of the identifier
 	pub ident: String,
@@ -71,7 +89,7 @@ pub struct ASTAssignIdent {
 	pub ident_type: ASTType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTAssignDottedIdent {
 	/// Name of the identifier
 	pub ident: (String, String),
@@ -79,19 +97,19 @@ pub struct ASTAssignDottedIdent {
 	pub ident_type: ASTType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StaticValue {
 	Int32(i32),
 	String(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTStaticAssign {
 	pub value: StaticValue,
 	pub value_type: ASTType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ASTAssignArg {
 	Static(ASTStaticAssign),
 	Ident(ASTAssignIdent),
@@ -104,31 +122,31 @@ impl ASTAssignArg {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTAdd {
 	pub rhs: ASTAssignArg,
 	pub lhs: ASTAssignArg,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTMinus {
 	pub rhs: ASTAssignArg,
 	pub lhs: ASTAssignArg,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTClassInitArg {
 	pub ident: String,
 	pub arg: ASTAssignmentExpr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTClassInit {
 	pub name: String,
 	pub args: Vec<ASTClassInitArg>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ASTAssignmentExpr {
 	/// Single value
 	Arg(ASTAssignArg),
@@ -138,7 +156,7 @@ pub enum ASTAssignmentExpr {
 	ClassInit(ASTClassInit),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTAssignment {
 	pub variable: ASTVariable,
 	pub expr: ASTAssignmentExpr,
@@ -146,7 +164,7 @@ pub struct ASTAssignment {
 	pub reassignment: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ASTBlockStatement {
 	Assignment(ASTAssignment),
 	FunctionCall(ASTFunctionCall),
@@ -155,12 +173,81 @@ pub enum ASTBlockStatement {
 }
 
 #[derive(Debug, Clone)]
-pub struct ASTVariable {
-	pub ast_type: ASTType,
-	pub ident: String,
+pub enum ASTIdent {
+	Ident(String),
+	DottedIdent((String, String)),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct ASTIdentErr(&'static str);
+
+impl TryFrom<ASTIdent> for String {
+	type Error = ASTIdentErr;
+
+	fn try_from(value: ASTIdent) -> Result<Self, Self::Error> {
+		match value {
+			ASTIdent::Ident(value) => Ok(value),
+			_ => Err(ASTIdentErr(
+				"Only regular idents can be compiled to strings",
+			)),
+		}
+	}
+}
+
+impl TryFrom<&ASTIdent> for String {
+	type Error = ASTIdentErr;
+
+	fn try_from(value: &ASTIdent) -> Result<Self, Self::Error> {
+		match value {
+			ASTIdent::Ident(value) => Ok(value.into()),
+			_ => Err(ASTIdentErr(
+				"Only regular idents can be compiled to strings",
+			)),
+		}
+	}
+}
+
+/// &str can turned directly into ASTIdent::Ident
+impl From<&str> for ASTIdent {
+	fn from(value: &str) -> Self {
+		Self::Ident(value.into())
+	}
+}
+
+/// String can turned directly into ASTIdent::Ident
+impl From<String> for ASTIdent {
+	fn from(value: String) -> Self {
+		Self::Ident(value)
+	}
+}
+
+/// &str can be compared directly with ASTIdent::Ident
+impl PartialEq<&str> for ASTIdent {
+	fn eq(&self, other: &&str) -> bool {
+		match self {
+			ASTIdent::Ident(val) => val == other,
+			ASTIdent::DottedIdent(_) => false,
+		}
+	}
+}
+
+/// &str can be compared directly with ASTIdent::Ident
+impl PartialEq<String> for ASTIdent {
+	fn eq(&self, other: &String) -> bool {
+		match self {
+			ASTIdent::Ident(val) => val == other,
+			ASTIdent::DottedIdent(_) => false,
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct ASTVariable {
+	pub ast_type: ASTType,
+	pub ident: ASTIdent,
+}
+
+#[derive(Debug, Clone)]
 pub struct ASTBlock {
 	pub variables: Vec<ASTVariable>,
 	pub statements: Vec<ASTBlockStatement>,
@@ -175,25 +262,25 @@ impl ASTBlock {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTLtStmt {
 	pub rhs: ASTAssignArg,
 	pub lhs: ASTAssignArg,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTIfStmt {
 	pub conditional: ASTLtStmt,
 	pub block: ASTBlock,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTReturn {
 	// TODO: refactor the type name
 	pub expr: ASTAssignmentExpr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASTFunction {
 	pub name: String,
 	/// Int32 arguments
@@ -225,6 +312,7 @@ pub struct ASTClassMember {
 pub struct ASTClass {
 	pub name: String,
 	pub members: Vec<ASTClassMember>,
+	pub methods: Vec<ASTFunction>,
 }
 
 impl ASTClass {
