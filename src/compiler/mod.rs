@@ -237,6 +237,37 @@ impl ASTAssignmentExpr {
 
 				(false, setup)
 			}
+			ASTAssignmentExpr::ASTArrayAccess(access) => {
+				let var: String = ctx
+					.vars
+					.iter()
+					.find(|v| v.ident == access.ident)
+					.expect("Variable not found")
+					.ident
+					.clone()
+					.try_into()
+					.unwrap();
+
+				let idx = if let ASTAssignmentExpr::Arg(arg) = access.arg.as_ref() {
+					if let ASTAssignArg::Static(arg) = &arg {
+						if let StaticValue::Int32(int) = &arg.value {
+							int.clone()
+						} else {
+							panic!("You can only compile static int access")
+						}
+					} else {
+						panic!("You can only compile static int access")
+					}
+				} else {
+					panic!("You can only compile static int access")
+				};
+
+				let target: String = (&access.ident).try_into().unwrap();
+				(
+					true,
+					format!("(i32.load (i32.add (get_local ${var}) (i32.const {idx})))"),
+				)
+			}
 		}
 	}
 }
