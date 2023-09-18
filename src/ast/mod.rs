@@ -169,6 +169,12 @@ pub struct ASTArrayInit {
 }
 
 #[derive(Debug, Clone)]
+pub struct ASTArrayAccess {
+	pub ident: ASTIdent,
+	pub arg: Box<ASTAssignmentExpr>,
+}
+
+#[derive(Debug, Clone)]
 pub enum ASTAssignmentExpr {
 	/// Single value
 	Arg(ASTAssignArg),
@@ -177,6 +183,7 @@ pub enum ASTAssignmentExpr {
 	FunctionCall(ASTFunctionCall),
 	ClassInit(ASTClassInit),
 	ArrayInit(ASTArrayInit),
+	ASTArrayAccess(ASTArrayAccess),
 }
 
 #[derive(Debug, Clone)]
