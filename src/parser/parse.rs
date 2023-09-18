@@ -311,6 +311,29 @@ impl Parser {
 				let fn_call = self.parse_function_call(None, value_token.value(), true);
 				ASTAssignmentExpr::FunctionCall(fn_call)
 			}
+			TokenType::LeftSquare => {
+				// skip the left square
+				self.skip_white().unwrap();
+				let ident = match value {
+					ASTAssignArg::Static(_) => panic!("Expected ident"),
+					ASTAssignArg::Ident(ident) => ASTIdent::Ident(ident.ident.clone()),
+					ASTAssignArg::DottedIdent(ident) => {
+						ASTIdent::DottedIdent((ident.ident.0.clone(), ident.ident.1.clone()))
+					}
+				};
+
+				// We can only access with ints so the value should resolve into it
+				let arg = self.parse_assign_expr(ctx, &ASTType::Int32(ASTInt32Type {}));
+				let right = self.skip_white().unwrap();
+				if right.type_() != TokenType::RightSquare {
+					panic!("Expected RightSquare");
+				}
+
+				ASTAssignmentExpr::ASTArrayAccess(ASTArrayAccess {
+					ident,
+					arg: Box::new(arg),
+				})
+			}
 			_ => ASTAssignmentExpr::Arg(value),
 		};
 
