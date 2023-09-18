@@ -1,16 +1,19 @@
 use crate::{
 	ast::{
 		ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTClass, ASTFunction, ASTFunctionCall,
-		ASTFunctionCallArg, ASTIdent, ASTLtStmt, ASTType, StaticValue,
+		ASTFunctionCallArg, ASTIdent, ASTLtStmt, ASTStaticAssign, ASTType, StaticValue,
 	},
 	parser::parse::Parser,
 };
 
+#[derive(Debug)]
 struct CompileCtx {
 	vars: Vec<Variable>,
 	ptrs: Vec<Pointer>,
 	types: Vec<CompiledType>,
 	global_data: Vec<GlobalData>,
+	/// hacky value for the type of the current variable
+	variable_type: Option<ASTType>,
 }
 
 impl CompileCtx {
@@ -98,6 +101,7 @@ impl ASTAssignmentExpr {
 					ASTType::Int32(_) => "i32.add",
 					ASTType::String(_) => "call $__string_concat",
 					ASTType::Custom(_) => unreachable!("Cannot add two custom types"),
+					ASTType::Array(_) => unreachable!("Cannot add two array types"),
 				};
 
 				(
@@ -173,6 +177,62 @@ impl ASTAssignmentExpr {
 						"(i32.store (i32.add (get_local ${}) (i32.const {offset})) {assign_arg})\n",
 						arg_target
 					));
+				}
+
+				(false, setup)
+			}
+			ASTAssignmentExpr::ArrayInit(array) => {
+				let ast_type = ctx
+					.variable_type
+					.clone()
+					.expect("Arrays need variable type");
+				let array_type = if let ASTType::Array(arr) = &ast_type {
+					arr
+				} else {
+					panic!("Expected ASTType::Array")
+				};
+
+				let ast_size = match array_type.type_.as_ref() {
+					ASTType::Int32(_) => 4,
+					// string is ptr and len for now
+					ASTType::String(_) => 8,
+					ASTType::Custom(class) => ctx
+						.types
+						.iter()
+						.find(|t| t.name == class.name)
+						.unwrap()
+						.total_size(),
+					ASTType::Array(_) => todo!("Nested Array initialisation is not implemented"),
+				};
+				let ast_size_total = ast_size * array_type.size;
+
+				// TODO: support creating an anonymous pointer for return statements
+				let target = ident.expect("ClassInit requires a variable target");
+				let local_target: String = target.try_into().unwrap();
+				let mut setup = format!(
+					"\n(set_local ${local_target} (call $__reserve_bytes (i32.const {ast_size_total})))\n",
+				);
+
+				let mut offset: i32 = 0;
+				for arg in &array.args {
+					let assign_arg = if let ASTAssignmentExpr::Arg(arg) = &arg {
+						if let ASTAssignArg::Static(arg) = &arg {
+							if let StaticValue::Int32(int) = &arg.value {
+								int.clone()
+							} else {
+								panic!("You can only compile static int initialisation")
+							}
+						} else {
+							panic!("You can only compile static int initialisation")
+						}
+					} else {
+						panic!("You can only compile static int initialisation")
+					};
+					setup.push_str(&format!(
+						"(i32.store (i32.add (get_local ${local_target}) (i32.const {offset})) (i32.const {assign_arg}))\n",
+					));
+
+					offset += ast_size;
 				}
 
 				(false, setup)
@@ -303,6 +363,7 @@ impl CompiledType {
 					ASTType::String(_) => 8,
 					// ptr and size
 					ASTType::Custom(_) => 8,
+					ASTType::Array(_) => todo!(),
 				};
 
 				members.push(CompiledMember {
@@ -440,6 +501,13 @@ impl Compiler {
 					type_: type_.clone(),
 				})
 			}
+			ASTType::Array(array) => ctx.vars.push(Variable {
+				ident: ident.clone(),
+				type_: CompiledType {
+					name: "item_size".into(),
+					members: Vec::new(),
+				},
+			}),
 		}
 	}
 
@@ -479,8 +547,10 @@ impl Compiler {
 		}
 
 		for block in &function.body.statements {
+			ctx.variable_type = None;
 			match block {
 				ASTBlockStatement::Assignment(assign) => {
+					ctx.variable_type = Some(assign.variable.ast_type.clone());
 					match &assign.variable.ident {
 						ASTIdent::Ident(local_variable) => {
 							if !assign.reassignment {
@@ -572,6 +642,7 @@ impl Compiler {
 		let types = CompiledType::from_classes(&self.ast.custom_types);
 		let mut ctx = CompileCtx {
 			types,
+			variable_type: None,
 			global_data: Vec::new(),
 			ptrs: Vec::new(),
 			vars: Vec::new(),
