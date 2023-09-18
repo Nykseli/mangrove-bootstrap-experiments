@@ -17,8 +17,20 @@ pub struct ASTStringType {
 }
 
 #[derive(Debug, Clone)]
+pub struct ASTArrayType {
+	// Needs to be boxed value
+	// TODO: use Rc instead of Box for cheaper clones in the future
+	pub type_: Box<ASTType>,
+	/// -1 means that the initialisation will decide the lenght
+	/// While magic values are bad, it's a lot cleaner to have just a size
+	/// in the compiler since the AST parser will define the length anyway
+	pub size: i32,
+}
+
+#[derive(Debug, Clone)]
 pub enum ASTType {
 	Int32(ASTInt32Type),
+	Array(ASTArrayType),
 	String(ASTStringType),
 	Custom(ASTClass),
 }
@@ -27,18 +39,23 @@ impl ASTType {
 	pub fn name(&self) -> String {
 		match self {
 			ASTType::Int32(_) => "Int32".into(),
+			ASTType::Array(_) => "Array".into(),
 			ASTType::String(_) => "String".into(),
 			ASTType::Custom(class) => class.name.clone(),
 		}
 	}
-}
 
-impl ASTType {
 	pub fn has_same_type(&self, other: &Self) -> bool {
 		// Custom types should be equal if they have the same name
 		if let Self::Custom(c1) = self {
 			if let Self::Custom(c2) = other {
 				return c1.name == c2.name;
+			}
+		}
+
+		if let Self::Array(a1) = self {
+			if let Self::Array(a2) = other {
+				return a1.size == a2.size && a1.type_.has_same_type(&a2.type_);
 			}
 		}
 
@@ -147,6 +164,11 @@ pub struct ASTClassInit {
 }
 
 #[derive(Debug, Clone)]
+pub struct ASTArrayInit {
+	pub args: Vec<ASTAssignmentExpr>,
+}
+
+#[derive(Debug, Clone)]
 pub enum ASTAssignmentExpr {
 	/// Single value
 	Arg(ASTAssignArg),
@@ -154,6 +176,7 @@ pub enum ASTAssignmentExpr {
 	Minus(ASTMinus),
 	FunctionCall(ASTFunctionCall),
 	ClassInit(ASTClassInit),
+	ArrayInit(ASTArrayInit),
 }
 
 #[derive(Debug, Clone)]
@@ -176,6 +199,16 @@ pub enum ASTBlockStatement {
 pub enum ASTIdent {
 	Ident(String),
 	DottedIdent((String, String)),
+}
+
+impl PartialEq for ASTIdent {
+	fn eq(&self, other: &Self) -> bool {
+		match (self, other) {
+			(Self::Ident(l0), Self::Ident(r0)) => l0 == r0,
+			(Self::DottedIdent(l0), Self::DottedIdent(r0)) => l0 == r0,
+			_ => false,
+		}
+	}
 }
 
 #[derive(Debug, Clone)]
