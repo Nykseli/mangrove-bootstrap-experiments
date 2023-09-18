@@ -1,10 +1,11 @@
 use std::fmt::format;
 
 use crate::ast::{
-	ASTAdd, ASTAssignArg, ASTAssignDottedIdent, ASTAssignIdent, ASTAssignment, ASTAssignmentExpr,
-	ASTBlock, ASTBlockStatement, ASTClass, ASTClassInit, ASTClassInitArg, ASTClassMember,
-	ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIdent, ASTIfStmt, ASTInt32Type, ASTLtStmt,
-	ASTMinus, ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
+	ASTAdd, ASTArrayAccess, ASTArrayInit, ASTArrayType, ASTAssignArg, ASTAssignDottedIdent,
+	ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement, ASTClass,
+	ASTClassInit, ASTClassInitArg, ASTClassMember, ASTFunction, ASTFunctionCall,
+	ASTFunctionCallArg, ASTIdent, ASTIfStmt, ASTInt32Type, ASTLtStmt, ASTMinus, ASTReturn,
+	ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
 };
 
 use super::tokeniser::Tokeniser;
@@ -152,7 +153,8 @@ impl Parser {
 				})
 			}
 			TokenType::Ident => {
-				if self.skip_white_peek().unwrap().type_() == TokenType::Dot {
+				let peek_next = self.skip_white_peek().unwrap();
+				if peek_next.type_() == TokenType::Dot {
 					let ident: String = value.value().into();
 					// skip the dot
 					self.skip_white().unwrap();
@@ -185,7 +187,11 @@ impl Parser {
 				}
 
 				if let Some(var) = ctx.variables.iter().find(|v| v.ident == value.value()) {
-					if !var.ast_type.has_same_type(target_type) {
+					if let ASTType::Array(array) = &var.ast_type {
+						if !array.type_.has_same_type(target_type) {
+							panic!("Different types: {target_type:#?} {:#?}", array.type_)
+						}
+					} else if !var.ast_type.has_same_type(target_type) {
 						panic!("Different types: {target_type:#?} {:#?}", var.ast_type)
 					}
 				} else if self.skip_white_peek().unwrap().type_() != TokenType::LeftParen {
@@ -240,12 +246,49 @@ impl Parser {
 		}
 	}
 
+	fn parse_array_init(&mut self, ctx: &BlockCtx, target_type: &ASTType) -> ASTArrayInit {
+		let array = if let ASTType::Array(array) = target_type {
+			array
+		} else {
+			panic!("Expected a array type {target_type:#?}")
+		};
+
+		let mut inits = Vec::new();
+		/* 		let mut token = self.skip_white().unwrap(); */
+		let mut token = Token::default();
+		while token.type_() != TokenType::RightSquare {
+			let arg = self.parse_assign_expr(ctx, &array.type_);
+			inits.push(arg);
+
+			token = self.skip_white_peek().unwrap();
+			if token.type_() == TokenType::Comma {
+				token = self.skip_white().unwrap();
+			}
+		}
+
+		// array.size is -1 if the size is defined by the expression
+		if array.size > 0 && inits.len() != array.size as usize {
+			panic!(
+				"Array init length was {}, expected: {}",
+				inits.len(),
+				array.size
+			);
+		}
+
+		self.skip_white().unwrap();
+		ASTArrayInit { args: inits }
+	}
+
 	fn parse_assign_expr(&mut self, ctx: &BlockCtx, target_type: &ASTType) -> ASTAssignmentExpr {
 		let value_token = self.skip_white().unwrap();
 		if value_token.type_() == TokenType::LeftBrace {
 			// TODO: make sure members have the right type
 			let class = self.parse_class_init(ctx, target_type);
 			return ASTAssignmentExpr::ClassInit(class);
+		}
+		if value_token.type_() == TokenType::LeftSquare {
+			let array = self.parse_array_init(ctx, target_type);
+			return ASTAssignmentExpr::ArrayInit(array);
 		}
 		let value = self.parse_value_token(ctx, target_type, &value_token);
 		let peek = self.skip_white_peek().unwrap();
@@ -274,11 +317,44 @@ impl Parser {
 		expr
 	}
 
-	fn parse_ast_type(&self, type_token: &Token) -> ASTType {
+	fn parse_array_type(&mut self) -> ASTArrayType {
+		let ident = self.skip_white().unwrap();
+		if ident.type_() != TokenType::Ident {
+			panic!("Expected identifier {ident:#?}");
+		}
+
+		let ast_type = self.parse_ast_type(&ident);
+
+		let mut next = self.skip_white().unwrap();
+		let int_lit: i32 = if next.type_() == TokenType::Comma {
+			let int_lit = self.skip_white().unwrap();
+			if int_lit.type_() != TokenType::IntLit {
+				panic!("Expected int literal {int_lit:#?}");
+			}
+
+			next = self.skip_white().unwrap();
+			int_lit.value().parse::<i32>().unwrap()
+		} else {
+			-1
+		};
+
+		if next.type_() != TokenType::RelOp || next.value() != ">" {
+			panic!("Expected '>' {ident:#?}");
+		}
+
+		ASTArrayType {
+			type_: Box::new(ast_type),
+			size: int_lit,
+		}
+	}
+
+	fn parse_ast_type(&mut self, type_token: &Token) -> ASTType {
 		if type_token.value() == "String" {
 			ASTType::String(ASTStringType::default())
 		} else if type_token.value() == "Int32" {
 			ASTType::Int32(ASTInt32Type {})
+		} else if type_token.value() == "Array" {
+			ASTType::Array(self.parse_array_type())
 		} else if let Some(custom) = self.custom_type(type_token.value()) {
 			ASTType::Custom(custom)
 		} else {
@@ -290,9 +366,16 @@ impl Parser {
 		&mut self,
 		ctx: &BlockCtx,
 		type_token: Token,
-		ident: ASTIdent,
+		next: Token,
 	) -> ASTAssignment {
-		let ast_type = self.parse_ast_type(&type_token);
+		let mut ast_type = self.parse_ast_type(&type_token);
+
+		let ident = if next.type_() == TokenType::RelOp {
+			// Assignment type was templated, so the next value is the ident
+			ASTIdent::Ident(self.skip_white().unwrap().value().into())
+		} else {
+			ASTIdent::Ident(next.value().into())
+		};
 
 		let assign = self.skip_white().unwrap();
 		if assign.type_() != TokenType::AssignOp {
@@ -300,6 +383,12 @@ impl Parser {
 		}
 
 		let expr = self.parse_assign_expr(ctx, &ast_type);
+		// Reassign the length of the array type in case it's defined by the expression
+		if let ASTAssignmentExpr::ArrayInit(ainit) = &expr {
+			if let ASTType::Array(arr) = &mut ast_type {
+				arr.size = ainit.args.len() as i32
+			}
+		}
 		let variable = ASTVariable { ast_type, ident };
 
 		ASTAssignment {
@@ -359,9 +448,8 @@ impl Parser {
 		if next.type_() == TokenType::LeftParen {
 			let fn_call = self.parse_function_call(None, statement.value(), false);
 			ASTBlockStatement::FunctionCall(fn_call)
-		} else if next.type_() == TokenType::Ident {
+		} else if next.type_() == TokenType::Ident || next.type_() == TokenType::RelOp {
 			// Ident after type
-			let next = ASTIdent::Ident(next.value().into());
 			let assign = self.parse_assignment(&ctx, statement, next);
 			ctx.variables.push(assign.variable.clone());
 			ASTBlockStatement::Assignment(assign)
@@ -401,6 +489,7 @@ impl Parser {
 						))
 						.type_
 						.clone(),
+					ASTType::Array(_) => todo!(),
 				};
 
 				let dotted =
