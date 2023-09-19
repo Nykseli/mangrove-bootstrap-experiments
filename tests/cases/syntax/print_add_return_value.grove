@@ -1,0 +1,19 @@
+// Output:
+// 28 foo, bar sum: 28!
+
+
+function ret() -> Int32
+{
+	return 5
+}
+
+function main() -> none
+{
+	Int32 foo = 12
+	Int32 bar = 16
+	Int32 zoo = foo + 16
+	Int32 sum = foo + bar
+	__print_int(zoo)
+	__print_char(' ')
+	__print_format("foo, bar sum: {}!\n", sum)
+}

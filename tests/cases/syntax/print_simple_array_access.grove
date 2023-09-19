@@ -1,0 +1,10 @@
+// Output:
+// 1
+
+function main() -> none
+{
+	Array<Int32> foo = [1, 2, 3]
+	Int32 bar = foo[0]
+	__print_int(bar)
+	__print_char('\n')
+}

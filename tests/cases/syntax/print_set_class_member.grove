@@ -1,0 +1,30 @@
+// Output:
+// Hello world
+// 321
+
+class Duck
+{
+	String _prvmsg
+	Int32 val
+
+	function set_msg(String msg) -> none
+	{
+		this._prvmsg = msg
+	}
+
+	function set_val(Int32 val) -> none
+	{
+		this.val = val
+	}
+}
+
+function main() -> none
+{
+	Duck quack = { _prvmsg: "DONT'T PRINT THIS", val: 123 }
+	String foo = "Hello world\n"
+	quack.set_msg(foo)
+	quack.set_val(321)
+	__print_str_ptr(quack._prvmsg)
+	__print_int(quack.val)
+	__print_char('\n')
+}

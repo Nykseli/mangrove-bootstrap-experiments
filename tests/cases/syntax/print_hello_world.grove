@@ -1,0 +1,9 @@
+// Output:
+// Hello world!
+// Hello duck!
+
+function main() -> none
+{
+	__print_str("Hello world!\n")
+	__print_str("Hello duck!\n")
+}

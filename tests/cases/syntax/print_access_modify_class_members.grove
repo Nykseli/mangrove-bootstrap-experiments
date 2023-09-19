@@ -1,0 +1,34 @@
+// Output:
+// Duck msg: Hello from quacker!
+// With length: 19
+// and Duck value: 246
+
+class Duck {
+	String msg
+	Int32 val
+}
+
+function print_duck(Duck duck) -> none
+{
+	String msg = duck.msg
+	__print_str("Duck msg: ")
+	__print_str_ptr(msg)
+	__print_str("\nWith length: ")
+	__print_int(msg.length)
+	__print_str("\nand Duck value: ")
+	__print_int(duck.val)
+	__print_char('\n')
+}
+
+function combine_ducks(Duck duck1, Duck duck2) -> none
+{
+	Duck duck3 = {msg: duck1.msg + duck2.msg, val: duck1.val + duck2.val}
+	print_duck(duck3)
+}
+
+function main() -> none
+{
+	Duck quack = { msg: "Hello ", val: 123 }
+	Duck quack2 = { msg: "from quacker!", val: 123 }
+	combine_ducks(quack, quack2)
+}

@@ -1,0 +1,34 @@
+// Output:
+// 1
+// 1
+// 2
+// 3
+// 5
+// 8
+// 13
+// 21
+
+function next_fib(Int32 prev1, Int32 prev2) -> Int32
+{
+	return prev1 + prev2
+}
+
+function fib(Int32 n, Int32 prev1, Int32 prev2) -> Int32
+{
+	if n < 3 {
+		return 1
+	}
+
+	Int32 fn = next_fib(prev1, prev2)
+	Int32 prev22 = prev1
+	Int32 prev12 = fn
+	__print_format("{}\n", fn)
+	Int32 n2 = n - 1
+	Int32 tmp = fib(n2, prev12, prev22)
+	return tmp
+}
+
+function main() -> none
+{
+	Int32 foo = fib(10, 0, 1)
+}

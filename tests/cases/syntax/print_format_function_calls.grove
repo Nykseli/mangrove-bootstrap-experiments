@@ -1,0 +1,30 @@
+// Output:
+// Hello a
+// 1234
+// world!
+// Quack quack
+// Quack quack
+// Hello world! I can format chars: 'c' and ints: '123'
+
+function format_print() -> none
+{
+	__print_format("Hello {}! I can format chars: '{}' and ints: '{}'\n", "world", 'c', 123)
+}
+
+function foobar() -> none
+{
+	__print_str("Hello ")
+	__print_char('a')
+	__print_char('\n')
+	__print_int(1234)
+	__print_char('\n')
+	__print_str("world!\n")
+	__print_str("Quack quack\n")
+	__print_str("Quack quack\n")
+}
+
+function main() -> none
+{
+	foobar()
+	format_print()
+}
