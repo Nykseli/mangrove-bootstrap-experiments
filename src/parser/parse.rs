@@ -708,6 +708,8 @@ impl Parser {
 			} else if token.type_() == TokenType::ClassDef {
 				let class = self.parse_class();
 				self.custom_types.push(class.clone());
+			} else if token.type_() == TokenType::Comment {
+				// Just ignore for now
 			} else {
 				unimplemented!("Only FunctionDef statements can be parsed! {token:?}")
 			}
