@@ -1,272 +1,348 @@
 use crate::{
 	ast::{
-		ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTClass, ASTFunction, ASTFunctionCall,
-		ASTFunctionCallArg, ASTIdent, ASTLtStmt, ASTStaticAssign, ASTType, StaticValue,
+		ASTArrayAccess, ASTArrayInit, ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTClass,
+		ASTClassInit, ASTFunction, ASTFunctionCallArg, ASTIdent, ASTLtStmt, ASTType, StaticValue,
 	},
 	parser::parse::Parser,
 };
 
-#[derive(Debug)]
-struct CompileCtx {
-	vars: Vec<Variable>,
-	ptrs: Vec<Pointer>,
-	types: Vec<CompiledType>,
-	global_data: Vec<GlobalData>,
-	/// hacky value for the type of the current variable
-	variable_type: Option<ASTType>,
+#[derive(Debug, Clone)]
+enum InternalType {
+	String,
+	Int32,
 }
 
-impl CompileCtx {
-	fn dottet_ident_type<'a>(&'a self, dotted: (&str, &str)) -> &'a TypeInfo {
-		// If the values are not compiled, it's probably a probem with AST
-		let var = &self
-			.vars
-			.iter()
-			.find(|v| v.ident == dotted.0)
-			.unwrap()
-			.type_;
-		let dotted = var.members.iter().find(|m| m.ident == dotted.1).unwrap();
-		&dotted.type_
+impl InternalType {
+	fn size(&self) -> i32 {
+		match self {
+			// ptr + size
+			InternalType::String => 8,
+			// i32 is always 4 bytes
+			InternalType::Int32 => 4,
+		}
+	}
+
+	fn is32b(&self) -> bool {
+		match self {
+			// string is 2x32b values
+			InternalType::String => false,
+			InternalType::Int32 => true,
+		}
 	}
 }
 
-impl ASTAssignArg {
-	/// [ident] is Some when the assignment is directly set to a variable
-	/// ```grove
-	/// String foo = "bar"
-	/// //     ^ option will be "foo"
-	/// ```
-	/// It's None when the value is anonymous
-	/// ```grove
-	/// String foo = "bar" + "zoo"
-	/// //           ^ "bar" and "zoo" need to be set to anonymous pointers
-	/// ```
-	fn compile(&self, ctx: &mut CompileCtx, ident: Option<&ASTIdent>) -> String {
-		match self {
-			ASTAssignArg::Ident(s) => format!("(get_local ${})", s.ident),
-			ASTAssignArg::Static(s) => match &s.value {
-				StaticValue::Int32(val) => format!("(i32.const {val})"),
-				StaticValue::String(val) => {
-					let data_len = val.len();
-					let ptr_idx = ctx.ptrs.len();
-					let global = Compiler::add_data(ctx, ASTFunctionCallArg::String(val.into()));
-					let global_addr = global.start;
-					let target = if let Some(ident) = ident {
-						ident.try_into().unwrap()
-					} else {
-						format!("__pointer{ptr_idx}")
-					};
-					// call reserve bytes
-					// save stackpointer to offset 0
-					// save length of the string to offset 4
-					let setup = format!(
-						"
-						(set_local ${target} (call $__reserve_bytes (i32.const 8)))
-						(i32.store (get_local ${target}) (i32.const {global_addr}))
-						(i32.store (i32.add (get_local ${target}) (i32.const 4)) (i32.const {data_len}))
-					"
-					);
+#[derive(Debug, Clone)]
+struct CompiledArray {
+	/// Total size of the structure in bytes. Element size + length
+	total_size: i32,
+	/// How many elements the array has
+	length: i32,
+	/// What type of element the Array has
+	element_type: Box<CompiledType>,
+}
 
-					ctx.ptrs.push(Pointer {
-						anonymous: ident.is_none(),
-						setup,
-					});
-					format!("(get_local ${target})")
+#[derive(Debug, Clone)]
+struct CompiledClassMember {
+	ident: String,
+	type_: CompiledType,
+	/// How many bytes from the 0 index
+	offset: i32,
+	// TODO: we can probably get the size from type_
+	/// How big is the member
+	size: i32,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledClass {
+	/// Name of the class
+	name: String,
+	members: Vec<CompiledClassMember>,
+	/// How much space the class/member take
+	total_size: i32,
+}
+
+impl CompiledClass {
+	fn member<'a>(&'a self, name: &str) -> &'a CompiledClassMember {
+		self.members
+			.iter()
+			.find(|m| &m.ident == name)
+			.expect(&format!("Class {} doesn't have a member {name}", self.name))
+	}
+}
+
+#[derive(Debug, Clone)]
+enum CompiledType {
+	Array(CompiledArray),
+	Class(CompiledClass),
+	Internal(InternalType),
+}
+
+impl CompiledType {
+	fn size(&self) -> i32 {
+		match self {
+			CompiledType::Array(arr) => arr.total_size,
+			CompiledType::Class(class) => class.total_size,
+			CompiledType::Internal(intr) => intr.size(),
+		}
+	}
+
+	fn is32b(&self) -> bool {
+		match &self {
+			// Array and class is pointer and address are i32
+			CompiledType::Array(_) | CompiledType::Class(_) => true,
+			CompiledType::Internal(intr) => intr.is32b(),
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+struct CompiledVariable {
+	type_: CompiledType,
+	ident: String,
+	initialised: bool,
+}
+
+impl CompiledVariable {
+	fn local_type(&self) -> &'static str {
+		match self.type_.is32b() {
+			true => "i32",
+			false => "i64",
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+struct StaticString {
+	start: i32,
+	value: String,
+}
+
+impl StaticString {
+	/// Create the wasm i64 representation of static string
+	fn value(&self) -> u64 {
+		// Set pointer and pointer size (string length)
+		// Using a 64 bit value here lets us set the string pointer and length
+		// in a single instruction.
+		let start: u64 = self.start as u64;
+		let size: u64 = self.value.len() as u64;
+		// wasm little endian byte order so the length is least significant
+		size << 32 | start
+	}
+}
+
+#[derive(Debug, Clone)]
+enum StaticData {
+	StaticString(StaticString),
+}
+
+impl StaticData {
+	fn start(&self) -> i32 {
+		match self {
+			StaticData::StaticString(s) => s.start,
+		}
+	}
+
+	fn size(&self) -> i32 {
+		match self {
+			StaticData::StaticString(s) => s.value.len() as i32,
+		}
+	}
+
+	fn value(&self) -> String {
+		match self {
+			StaticData::StaticString(s) => format!("\"{}\"", s.value.replace("\n", "\\n")),
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+struct CompileCtx {
+	/// Variables in the current context
+	vars: Vec<CompiledVariable>,
+	/// All the compiled classes
+	classes: Vec<CompiledClass>,
+	/// Statically allocated memory
+	static_data: Vec<StaticData>,
+}
+
+impl CompileCtx {
+	fn find_compiled_class<'a>(&'a self, name: &str) -> &'a CompiledClass {
+		self.classes
+			.iter()
+			.find(|c| &c.name == name)
+			.expect(&format!("Class '{name}' is not defined"))
+	}
+
+	fn find_variable<'a>(&'a self, name: &str) -> &'a CompiledVariable {
+		self.vars
+			.iter()
+			.find(|v| &v.ident == name)
+			.expect(&format!("Variable '{name}' is not defined"))
+	}
+
+	fn ast_type_into_compiled(&self, ast_type: &ASTType) -> CompiledType {
+		match ast_type {
+			ASTType::Int32(_) => CompiledType::Internal(InternalType::Int32),
+			ASTType::String(_) => CompiledType::Internal(InternalType::String),
+			ASTType::Custom(class) => {
+				let class = self.find_compiled_class(&class.name).clone();
+				CompiledType::Class(class)
+			}
+			ASTType::Array(array) => {
+				let type_ = self.ast_type_into_compiled(&array.type_);
+				/// We have to know the size of the array when compiling the type
+				assert!(array.size > -1);
+				CompiledType::Array(CompiledArray {
+					total_size: type_.size() * array.size,
+					length: array.size,
+					element_type: Box::new(type_),
+				})
+			}
+		}
+	}
+
+	fn add_ast_class(&mut self, class: &ASTClass) {
+		let mut offset: i32 = 0;
+		let mut members: Vec<CompiledClassMember> = Vec::new();
+		for member in &class.members {
+			let type_ = self.ast_type_into_compiled(&member.type_);
+			let size = type_.size();
+			members.push(CompiledClassMember {
+				ident: member.ident.clone(),
+				type_,
+				offset,
+				size,
+			});
+			offset += size;
+		}
+
+		self.classes.push(CompiledClass {
+			name: class.name.clone(),
+			members,
+			total_size: offset,
+		})
+	}
+
+	fn add_static_string(&mut self, string: &str) -> StaticString {
+		let start = if let Some(stat) = self.static_data.last() {
+			// Next start should be right after the previous memory allocation
+			stat.size() + stat.start()
+		} else {
+			// first 4096 bytes are reserved for internal functions and data
+			4096
+		};
+
+		let new_string = StaticData::StaticString(StaticString {
+			start,
+			value: string.into(),
+		});
+		self.static_data.push(new_string);
+
+		StaticString {
+			start,
+			value: string.into(),
+		}
+	}
+
+	fn load_dotted_ident(&self, ident: (&str, &str), offset: i32) -> InitExpression {
+		let dotted = ident.1;
+		let ident = ident.0;
+		let var = self.find_variable(&ident);
+		match &var.type_ {
+			CompiledType::Array(arr) => todo!("Implement Array members"),
+			CompiledType::Internal(inter) => match inter {
+				InternalType::String => {
+					if dotted != "length" {
+						panic!("String type doesn't have a member '{dotted}'")
+					}
+
+					InitExpression::new(
+						offset,
+						format!("(i32.wrap_i64 (i64.shr_u (local.get ${ident}) (i64.const 32)))"),
+					)
 				}
+				InternalType::Int32 => todo!("Implement Int32 members"),
 			},
-			ASTAssignArg::DottedIdent(dotted_ident) => {
-				let (ident, dotted) = &dotted_ident.ident;
-				let offset = ctx.dottet_ident_type((ident, dotted)).offset;
-				// Dotted value is ident + offset to it
-				format!("(i32.load (i32.add (get_local ${ident}) (i32.const {offset})))")
+			CompiledType::Class(class) => {
+				let member = class.member(dotted);
+				let offset = offset + member.offset;
+				if member.type_.is32b() {
+					InitExpression::new(
+						offset,
+						format!("(i32.load (i32.add (get_local ${ident}) (i32.const {offset})))"),
+					)
+				} else {
+					InitExpression::new_64b(
+						offset,
+						format!("(i64.load (i32.add (get_local ${ident}) (i32.const {offset})))"),
+					)
+				}
 			}
 		}
 	}
 }
 
-impl ASTAssignmentExpr {
-	///
-	fn compile(&self, ctx: &mut CompileCtx, ident: Option<&ASTIdent>) -> (bool, String) {
+#[derive(Debug)]
+struct InitExpression {
+	/// Offset to the memory area where the expression value should be saved.
+	/// This can be ignored when, for exaxmple, Int32 variable is assigned
+	offset: i32,
+	/// The wasm expression in string format
+	expr: String,
+	/// i32.store or i64.store
+	is32b: bool,
+}
+
+impl InitExpression {
+	fn new(offset: i32, expr: String) -> Self {
+		Self {
+			offset,
+			expr,
+			is32b: true,
+		}
+	}
+
+	fn new_64b(offset: i32, expr: String) -> Self {
+		Self {
+			offset,
+			expr,
+			is32b: false,
+		}
+	}
+
+	fn store(&self) -> &'static str {
+		match self.is32b {
+			true => "i32.store",
+			false => "i64.store",
+		}
+	}
+}
+
+trait ASTCompile<T> {
+	fn compile(&self, ctx: &mut CompileCtx, ctype: &T, offset: i32) -> Vec<InitExpression>;
+}
+
+impl ASTAssignArg {
+	fn compile(&self, ctx: &mut CompileCtx, ctype: &CompiledType, offset: i32) -> InitExpression {
+		// TODO: Make sure that the ast types are actually correct.
+		//       In theory, AST sould catch the type errors but better to be safe than sorry
 		match self {
-			ASTAssignmentExpr::Arg(arg) => (true, arg.compile(ctx, ident)),
-			ASTAssignmentExpr::Add(val) => {
-				// Assuming lhs has same type as rhs
-				let fn_type = match &val.lhs {
-					ASTAssignArg::Static(val) => &val.value_type,
-					ASTAssignArg::Ident(val) => &val.ident_type,
-					ASTAssignArg::DottedIdent(val) => &val.ident_type,
-				};
-
-				let function = match fn_type {
-					ASTType::Int32(_) => "i32.add",
-					ASTType::String(_) => "call $__string_concat",
-					ASTType::Custom(_) => unreachable!("Cannot add two custom types"),
-					ASTType::Array(_) => unreachable!("Cannot add two array types"),
-				};
-
-				(
-					true,
-					format!(
-						"({function} {} {})",
-						val.lhs.compile(ctx, None),
-						val.rhs.compile(ctx, None)
-					),
-				)
-			}
-			ASTAssignmentExpr::Minus(val) => (
-				true,
-				format!(
-					"(i32.sub {} {})",
-					val.lhs.compile(ctx, None),
-					val.rhs.compile(ctx, None)
-				),
-			),
-			ASTAssignmentExpr::FunctionCall(func) => {
-				// There's no args at this point
-				let mut arg_str = String::new();
-				for arg in &func.args {
-					let arg_fmt = match &arg {
-						ASTFunctionCallArg::Char(v) => format!("(i32.const {})", *v as i32),
-						ASTFunctionCallArg::Int32(v) => format!("(i32.const {v})"),
-						ASTFunctionCallArg::DottedIdent(s) => todo!(),
-						ASTFunctionCallArg::String(s) => {
-							/* format!("(i32.const {}) (i32.const {})", self.start, s.len()) */
-							"".into()
-						}
-						ASTFunctionCallArg::Ident(i) => format!("(get_local ${i})"),
-					};
-					arg_str.push_str(&arg_fmt);
+			ASTAssignArg::Static(stat) => match &stat.value {
+				StaticValue::Int32(val) => {
+					InitExpression::new(offset, format!("(i32.const {val})"))
 				}
-
-				(true, format!("(call ${} {})\n", func.name, arg_str))
-			}
-			ASTAssignmentExpr::ClassInit(class) => {
-				/// We need to collect the arguments first so we can
-				/// set up pointers for static strings etc
-				let mut assign_args = Vec::new();
-				for arg in &class.args {
-					// We cannot directly assign static values to structures
-					// so always create anonymous pointer for it if needed
-					assign_args.push(arg.arg.compile(ctx, None))
+				StaticValue::String(string) => {
+					let sstring = ctx.add_static_string(string);
+					let value = sstring.value();
+					InitExpression::new_64b(offset, format!("(i64.const {})", value))
 				}
+			},
 
-				// TODO: support creating an anonymous pointer for return statements
-				let target = ident.expect("ClassInit requires a variable target");
-				// If type is not compiled, it should be a problem with AST
-				let type_ = ctx.types.iter().find(|t| t.name == class.name).unwrap();
-				// TODO: we shouldn't need to clone here
-				let type_ = type_.clone();
-
-				let data_size = type_.total_size();
-				let ptr_idx = ctx.ptrs.len();
-				let local_target: String = target.try_into().unwrap();
-				let mut setup = format!(
-					"\n(set_local ${} (call $__reserve_bytes (i32.const {data_size})))\n",
-					local_target
-				);
-
-				for (idx, arg) in class.args.iter().enumerate() {
-					// If type_info is not compiled, it should be a problem with AST
-					let type_info = type_.members.iter().find(|m| m.ident == arg.ident).unwrap();
-					let offset = type_info.type_.offset;
-					// TODO: check if the return type should set_local
-					//       this should be Arg or Add.
-					let assign_arg = &assign_args[idx].1;
-					let arg_target: String = target.try_into().unwrap();
-					setup.push_str(&format!(
-						"(i32.store (i32.add (get_local ${}) (i32.const {offset})) {assign_arg})\n",
-						arg_target
-					));
-				}
-
-				(false, setup)
+			ASTAssignArg::Ident(ident) => {
+				InitExpression::new(offset, format!("(get_local ${})", ident.ident))
 			}
-			ASTAssignmentExpr::ArrayInit(array) => {
-				let ast_type = ctx
-					.variable_type
-					.clone()
-					.expect("Arrays need variable type");
-				let array_type = if let ASTType::Array(arr) = &ast_type {
-					arr
-				} else {
-					panic!("Expected ASTType::Array")
-				};
-
-				let ast_size = match array_type.type_.as_ref() {
-					ASTType::Int32(_) => 4,
-					// string is ptr and len for now
-					ASTType::String(_) => 8,
-					ASTType::Custom(class) => ctx
-						.types
-						.iter()
-						.find(|t| t.name == class.name)
-						.unwrap()
-						.total_size(),
-					ASTType::Array(_) => todo!("Nested Array initialisation is not implemented"),
-				};
-				let ast_size_total = ast_size * array_type.size;
-
-				// TODO: support creating an anonymous pointer for return statements
-				let target = ident.expect("ClassInit requires a variable target");
-				let local_target: String = target.try_into().unwrap();
-				let mut setup = format!(
-					"\n(set_local ${local_target} (call $__reserve_bytes (i32.const {ast_size_total})))\n",
-				);
-
-				let mut offset: i32 = 0;
-				for arg in &array.args {
-					let assign_arg = if let ASTAssignmentExpr::Arg(arg) = &arg {
-						if let ASTAssignArg::Static(arg) = &arg {
-							if let StaticValue::Int32(int) = &arg.value {
-								int.clone()
-							} else {
-								panic!("You can only compile static int initialisation")
-							}
-						} else {
-							panic!("You can only compile static int initialisation")
-						}
-					} else {
-						panic!("You can only compile static int initialisation")
-					};
-					setup.push_str(&format!(
-						"(i32.store (i32.add (get_local ${local_target}) (i32.const {offset})) (i32.const {assign_arg}))\n",
-					));
-
-					offset += ast_size;
-				}
-
-				(false, setup)
-			}
-			ASTAssignmentExpr::ASTArrayAccess(access) => {
-				let var: String = ctx
-					.vars
-					.iter()
-					.find(|v| v.ident == access.ident)
-					.expect("Variable not found")
-					.ident
-					.clone()
-					.try_into()
-					.unwrap();
-
-				let idx = if let ASTAssignmentExpr::Arg(arg) = access.arg.as_ref() {
-					if let ASTAssignArg::Static(arg) = &arg {
-						if let StaticValue::Int32(int) = &arg.value {
-							int.clone()
-						} else {
-							panic!("You can only compile static int access")
-						}
-					} else {
-						panic!("You can only compile static int access")
-					}
-				} else {
-					panic!("You can only compile static int access")
-				};
-
-				let target: String = (&access.ident).try_into().unwrap();
-				(
-					true,
-					format!("(i32.load (i32.add (get_local ${var}) (i32.const {idx})))"),
-				)
+			ASTAssignArg::DottedIdent(ident) => {
+				ctx.load_dotted_ident((&ident.ident.0, &ident.ident.1), 0)
 			}
 		}
 	}
@@ -276,145 +352,494 @@ impl ASTLtStmt {
 	fn compile(&self, ctx: &mut CompileCtx) -> String {
 		format!(
 			"(i32.lt_s {} {})",
-			self.lhs.compile(ctx, None),
-			self.rhs.compile(ctx, None)
+			self.lhs
+				.compile(ctx, &CompiledType::Internal(InternalType::Int32), 0)
+				.expr,
+			self.rhs
+				.compile(ctx, &CompiledType::Internal(InternalType::Int32), 0)
+				.expr
 		)
 	}
 }
 
-#[derive(Debug, Clone)]
-pub struct Pointer {
-	anonymous: bool,
-	/// Allocation instructions
-	setup: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct Variable {
-	ident: ASTIdent,
-	type_: CompiledType,
-}
-
-#[derive(Debug, Clone)]
-pub struct GlobalData {
-	start: i32,
-	data: ASTFunctionCallArg,
-}
-
-impl GlobalData {
-	fn data_size(&self, ctx: &CompileCtx) -> usize {
-		match &self.data {
-			ASTFunctionCallArg::Char(_) => 4,
-			ASTFunctionCallArg::Int32(_) => 4,
-			ASTFunctionCallArg::Ident(_) => 4,
-			ASTFunctionCallArg::String(s) => s.len(),
-			ASTFunctionCallArg::DottedIdent((ident, dotted)) => {
-				ctx.dottet_ident_type((&ident, &dotted)).size as usize
-			}
-		}
-	}
-
-	fn is_global(&self) -> bool {
-		match &self.data {
-			ASTFunctionCallArg::String(s) => true,
-			_ => false,
-		}
-	}
-
-	fn function_arg(&self, ctx: &CompileCtx) -> String {
-		match &self.data {
+impl ASTFunctionCallArg {
+	fn compile(&self, ctx: &mut CompileCtx) -> String {
+		match &self {
 			ASTFunctionCallArg::Char(v) => format!("(i32.const {})", *v as i32),
 			ASTFunctionCallArg::Int32(v) => format!("(i32.const {v})"),
 			ASTFunctionCallArg::String(s) => {
-				format!("(i32.const {}) (i32.const {})", self.start, s.len())
+				let sstring = ctx.add_static_string(s);
+				let value = sstring.value();
+				format!("(i64.const {value})")
 			}
 			ASTFunctionCallArg::Ident(i) => format!("(get_local ${i})"),
-			ASTFunctionCallArg::DottedIdent((ident, dotted)) => {
-				let offset = ctx.dottet_ident_type((&ident, &dotted)).offset;
-				// Dotted value is ident + offset to it
-				format!("(i32.load (i32.add (get_local ${ident}) (i32.const {offset})))")
+			ASTFunctionCallArg::DottedIdent(ident) => {
+				ctx.load_dotted_ident((&ident.0, &ident.1), 0).expr
 			}
 		}
 	}
+}
 
-	fn data_value(&self) -> String {
-		match &self.data {
-			ASTFunctionCallArg::Char(v) => format!("{}", *v as i32),
-			ASTFunctionCallArg::Int32(v) => format!("{v}"),
-			ASTFunctionCallArg::String(s) => {
-				format!("\"{}\"", s.replace("\n", "\\n"))
-			}
-			ASTFunctionCallArg::Ident(i) => format!("(${i})"),
-			ASTFunctionCallArg::DottedIdent(_) => todo!(),
+impl ASTCompile<CompiledArray> for ASTArrayInit {
+	fn compile(
+		&self,
+		ctx: &mut CompileCtx,
+		array: &CompiledArray,
+		offset: i32,
+	) -> Vec<InitExpression> {
+		let mut elements: Vec<InitExpression> = Vec::new();
+
+		for (idx, arg) in self.args.iter().enumerate() {
+			let offset = offset + (array.element_type.size() * idx as i32);
+			let exprs = arg.compile(ctx, &array.element_type, offset);
+			elements.extend(exprs.into_iter());
+		}
+		elements
+	}
+}
+
+impl ASTArrayAccess {
+	fn compile(&self, ctx: &mut CompileCtx, array: &CompiledArray, offset: i32) -> InitExpression {
+		let is32b = array.element_type.is32b();
+		// TODO: dotted ident access
+		let ident: String = (&self.ident).try_into().unwrap();
+		let size = array.element_type.size();
+		let idx = self.arg.compile(ctx, &array.element_type, offset);
+		assert!(idx.len() == 1, "Array idx expression len needs to be 1");
+		let idx = &idx[0].expr;
+		let expr = format!("(i32.add (get_local ${ident}) (i32.mul (i32.const {size}) {idx}))\n");
+		let expr = match array.element_type.as_ref() {
+			// We want to load the the address of the class or array ptr
+			CompiledType::Array(_) | CompiledType::Class(_) => expr,
+			// We want to load the direct value from the address
+			CompiledType::Internal(val) => match val.is32b() {
+				true => format!("(i32.load {expr})\n"),
+				false => format!("(i64.load {expr})\n"),
+			},
+		};
+
+		InitExpression {
+			offset,
+			expr,
+			is32b,
 		}
 	}
 }
 
-#[derive(Debug, Clone)]
-pub struct TypeInfo {
-	/// How big member is
-	size: i32,
-	/// The offset from start of the member's memory area
-	offset: i32,
+impl ASTCompile<CompiledClass> for ASTClassInit {
+	fn compile(
+		&self,
+		ctx: &mut CompileCtx,
+		class: &CompiledClass,
+		offset: i32,
+	) -> Vec<InitExpression> {
+		let mut assigns: Vec<InitExpression> = Vec::new();
+		for arg in &self.args {
+			let member = class.member(&arg.ident);
+			let member_type = &member.type_;
+			let offset = offset + member.offset;
+			let exprs = arg.arg.compile(ctx, member_type, offset);
+			assigns.extend(exprs.into_iter());
+		}
+		assigns
+	}
 }
 
-#[derive(Debug, Clone)]
-pub struct CompiledMember {
-	ident: ASTIdent,
-	type_: TypeInfo,
-}
-
-#[derive(Debug, Clone)]
-pub struct CompiledType {
-	name: String,
-	members: Vec<CompiledMember>,
-}
-
-impl CompiledType {
-	fn from_classes(classes: &Vec<ASTClass>) -> Vec<Self> {
-		// Start with internal types
-		let mut types: Vec<CompiledType> = vec![CompiledType {
-			name: "String".into(),
-			members: vec![{
-				CompiledMember {
-					ident: "length".into(),
-					type_: TypeInfo { size: 4, offset: 4 },
-				}
-			}],
-		}];
-
-		for class in classes {
-			let mut offset: i32 = 0;
-			let mut members = Vec::new();
-			for member in &class.members {
-				let ident = member.ident.clone();
-				let size: i32 = match member.type_ {
-					ASTType::Int32(_) => 4,
-					// ptr and size
-					ASTType::String(_) => 8,
-					// ptr and size
-					ASTType::Custom(_) => 8,
-					ASTType::Array(_) => todo!(),
+impl ASTCompile<CompiledType> for ASTAssignmentExpr {
+	fn compile(
+		&self,
+		ctx: &mut CompileCtx,
+		type_: &CompiledType,
+		offset: i32,
+	) -> Vec<InitExpression> {
+		match self {
+			ASTAssignmentExpr::Arg(arg) => vec![arg.compile(ctx, type_, offset)],
+			ASTAssignmentExpr::Add(add) => {
+				// Assuming lhs has same type as rhs
+				let fn_type = match &add.lhs {
+					ASTAssignArg::Static(val) => &val.value_type,
+					ASTAssignArg::Ident(val) => &val.ident_type,
+					ASTAssignArg::DottedIdent(val) => &val.ident_type,
 				};
 
-				members.push(CompiledMember {
-					ident: ident.into(),
-					type_: TypeInfo { size, offset },
-				});
-				offset += size;
+				let function = match fn_type {
+					ASTType::Int32(_) => "i32.add",
+					ASTType::String(_) => "call $__string_concat2",
+					ASTType::Custom(_) => unreachable!("Cannot add two custom types"),
+					ASTType::Array(_) => unreachable!("Cannot add two array types"),
+				};
+
+				let ctype = ctx.ast_type_into_compiled(fn_type);
+				let lhs = add.lhs.compile(ctx, &ctype, offset).expr;
+				let rhs = add.rhs.compile(ctx, &ctype, offset).expr;
+				let is32b = ctype.is32b();
+				let expr = format!("({function} {lhs} {rhs})");
+				vec![InitExpression {
+					offset,
+					expr,
+					is32b,
+				}]
 			}
-			types.push(CompiledType {
-				members,
-				name: class.name.clone(),
+			ASTAssignmentExpr::Minus(minus) => {
+				// Assuming lhs has same type as rhs
+				let fn_type = match &minus.lhs {
+					ASTAssignArg::Static(val) => &val.value_type,
+					ASTAssignArg::Ident(val) => &val.ident_type,
+					ASTAssignArg::DottedIdent(val) => &val.ident_type,
+				};
+				let ctype = ctx.ast_type_into_compiled(fn_type);
+				let lhs = minus.lhs.compile(ctx, &ctype, offset).expr;
+				let rhs = minus.rhs.compile(ctx, &ctype, offset).expr;
+				let is32b = ctype.is32b();
+				let expr = format!("(i32.sub {lhs} {rhs})");
+				vec![InitExpression {
+					offset,
+					expr,
+					is32b,
+				}]
+			}
+			ASTAssignmentExpr::FunctionCall(func) => {
+				let mut arg_str = String::new();
+				for arg in &func.args {
+					arg_str.push_str(&arg.compile(ctx));
+				}
+				let expr = format!("(call ${} {arg_str})\n", func.name);
+				let is32b = if let Some(type_) = &func.variable {
+					ctx.ast_type_into_compiled(&type_.ast_type).is32b()
+				} else {
+					// fn call is not assigned to variable so the bitness doesn't matter
+					true
+				};
+
+				vec![InitExpression {
+					expr,
+					offset,
+					is32b,
+				}]
+			}
+			ASTAssignmentExpr::ClassInit(class) => {
+				let class_type = if let CompiledType::Class(class_type) = type_ {
+					class_type
+				} else {
+					panic!("Expected class type for class init");
+				};
+				class.compile(ctx, class_type, offset)
+			}
+			ASTAssignmentExpr::ArrayInit(array) => {
+				let array_type = if let CompiledType::Array(array_type) = type_ {
+					array_type
+				} else {
+					panic!("Expected class type for class init");
+				};
+				array.compile(ctx, array_type, offset)
+			}
+			ASTAssignmentExpr::ASTArrayAccess(access) => {
+				// TODO: dotted ident support
+				let var_type = &ctx.find_variable(access.ident.ident()).type_.clone();
+				let var_arr = if let CompiledType::Array(arr) = var_type {
+					arr
+				} else {
+					panic!("Expected array type for ASTArrayAccess")
+				};
+
+				vec![access.compile(ctx, &var_arr, offset)]
+			}
+		}
+	}
+}
+
+fn compile_variable_assignment(
+	ctx: &mut CompileCtx,
+	target: &CompiledVariable,
+	expr: &ASTAssignmentExpr,
+) -> String {
+	match &target.type_ {
+		CompiledType::Array(array) => {
+			let expr = if let ASTAssignmentExpr::ArrayInit(expr) = expr {
+				expr
+			} else if let ASTAssignmentExpr::ASTArrayAccess(access) = expr {
+				// TODO: dotted ident support
+				let var_type = &ctx.find_variable(access.ident.ident()).type_.clone();
+				let var_arr = if let CompiledType::Array(arr) = var_type {
+					arr
+				} else {
+					panic!("Expected array type for ASTArrayAccess")
+				};
+
+				let expr = access.compile(ctx, &var_arr, 0).expr;
+				return format!("(set_local ${} {expr})", target.ident);
+			} else if let ASTAssignmentExpr::Arg(arg) = expr {
+				return arg.compile(ctx, &target.type_, 0).expr;
+			} else {
+				panic!("Expected Array init expression");
+			};
+
+			let mut assignment = format!(
+				"(set_local ${} (call $__reserve_bytes (i32.const {})))\n",
+				target.ident,
+				target.type_.size()
+			);
+
+			let inits = expr.compile(ctx, array, 0);
+			for init in inits {
+				assignment.push_str(&format!(
+					"({} (i32.add (get_local ${}) (i32.const {})) {})\n",
+					init.store(),
+					target.ident,
+					init.offset,
+					init.expr
+				))
+			}
+			assignment
+		}
+		CompiledType::Class(class) => {
+			let expr = if let ASTAssignmentExpr::ClassInit(expr) = expr {
+				expr
+			} else if let ASTAssignmentExpr::ASTArrayAccess(access) = expr {
+				// TODO: dotted ident support
+				let var_type = &ctx.find_variable(access.ident.ident()).type_.clone();
+				let var_arr = if let CompiledType::Array(arr) = var_type {
+					arr
+				} else {
+					panic!("Expected array type for ASTArrayAccess")
+				};
+
+				let expr = access.compile(ctx, &var_arr, 0).expr;
+				return format!("(set_local ${} {expr})", target.ident);
+			} else if let ASTAssignmentExpr::Arg(arg) = expr {
+				return arg.compile(ctx, &target.type_, 0).expr;
+			} else {
+				panic!("Expected Class init expression");
+			};
+
+			let mut assignment = format!(
+				"(set_local ${} (call $__reserve_bytes (i32.const {})))\n",
+				target.ident,
+				target.type_.size()
+			);
+
+			let inits = expr.compile(ctx, class, 0);
+			for init in inits {
+				assignment.push_str(&format!(
+					"({} (i32.add (get_local ${}) (i32.const {})) {})\n",
+					init.store(),
+					target.ident,
+					init.offset,
+					init.expr
+				))
+			}
+			assignment
+		}
+		CompiledType::Internal(internal) => {
+			let expr = expr.compile(ctx, &target.type_, 0);
+			assert!(expr.len() == 1, "Internal assign expr len needs to be 1");
+			let expr = &expr[0].expr;
+			format!("(set_local ${} {expr})\n", target.ident)
+		}
+	}
+}
+
+fn compile_format_print_call(ctx: &mut CompileCtx, args: &Vec<ASTFunctionCallArg>) -> String {
+	let mut function = String::new();
+
+	if args.is_empty() {
+		panic!("__print_format requires at least 1 argument");
+	}
+
+	let format_arg = if let ASTFunctionCallArg::String(s) = &args[0] {
+		s
+	} else {
+		panic!("__print_format's first argument needs to be a static string");
+	};
+
+	let mut format = &format_arg[..];
+	let mut arg_idx: usize = 1;
+	let mut str_buf = String::new();
+	while !format.is_empty() {
+		if format.starts_with("{}") {
+			let sstring = ctx.add_static_string(&str_buf);
+			let value = sstring.value();
+			// Print the current string
+			str_buf = String::new();
+			function.push_str(&format!("(call $__print_str (i64.const {value}))\n"));
+
+			// Print the argument
+			let arg = &args[arg_idx];
+			match arg {
+				ASTFunctionCallArg::Char(c) => {
+					function.push_str(&format!("(call $__print_char (i32.const {}))\n", *c as i32))
+				}
+				ASTFunctionCallArg::Int32(val) => {
+					function.push_str(&format!("(call $__print_int (i32.const {}))\n", val))
+				}
+				ASTFunctionCallArg::String(s) => {
+					let sstring = ctx.add_static_string(&s);
+					let value = sstring.value();
+					function.push_str(&format!("(call $__print_str (i64.const {value}))\n"));
+				}
+				ASTFunctionCallArg::Ident(ident) => {
+					function.push_str(&format!("(call $__print_int (get_local ${ident}))\n"))
+				}
+				ASTFunctionCallArg::DottedIdent(_) => todo!(),
+			}
+
+			format = &format[2..];
+			arg_idx += 1;
+		} else {
+			str_buf.push_str(&format[0..1]);
+			format = &format[1..];
+		}
+	}
+
+	if !str_buf.is_empty() {
+		let sstring = ctx.add_static_string(&str_buf);
+		let value = sstring.value();
+		function.push_str(&format!("(call $__print_str (i64.const {value}))\n"));
+	}
+
+	function
+}
+
+fn compile_function(
+	ctx: &mut CompileCtx,
+	instructions: &mut String,
+	fn_name: &str,
+	function: &ASTFunction,
+) {
+	// pointer and variables are local to functions
+	ctx.vars = Vec::new();
+
+	let mut variables = String::new();
+	let mut body = String::new();
+
+	instructions.push_str(&format!("(func ${}", fn_name));
+	if function.args.len() > 0 {
+		instructions.push_str("(param");
+		for (idx, arg) in function.args.iter().enumerate() {
+			let arg_type = ctx.ast_type_into_compiled(&arg.ast_type);
+			let ints = if arg_type.is32b() { "i32" } else { "i64" };
+			instructions.push_str(&format!(" {ints}"));
+			let arg_ident: String = (&arg.ident).try_into().unwrap();
+			body.push_str(&format!("(set_local ${} (local.get {}))\n", arg_ident, idx));
+			variables.push_str(&format!("(local ${} {ints})\n", arg_ident));
+			ctx.vars.push(CompiledVariable {
+				type_: arg_type,
+				ident: arg_ident,
+				initialised: true,
 			})
 		}
-
-		types
+		instructions.push(')');
 	}
 
-	fn total_size(&self) -> i32 {
-		self.members.iter().fold(0, |acc, x| acc + x.type_.size)
+	// TODO: function returns type
+	if function.returns {
+		instructions.push_str("(result i32)\n");
+	} else {
+		instructions.push('\n');
 	}
+
+	for statment in &function.body.statements {
+		match statment {
+			ASTBlockStatement::Assignment(assign) => {
+				if let ASTIdent::DottedIdent((ident, dotted)) = &assign.variable.ident {
+					let var = ctx.find_variable(ident).clone();
+					let class = if let CompiledType::Class(class) = &var.type_ {
+						class
+					} else {
+						panic!("Can only set class members")
+					};
+
+					let member = class.member(dotted);
+					let offset = member.offset;
+					let store = if member.type_.is32b() {
+						format!("(i32.store (i32.add (get_local ${ident}) (i32.const {offset}))")
+					} else {
+						format!("(i64.store (i32.add (get_local ${ident}) (i32.const {offset}))")
+					};
+					let expr = compile_variable_assignment(ctx, &var, &assign.expr);
+					body.push_str(&format!("{store} {expr})"));
+					continue;
+				}
+
+				let type_ = ctx.ast_type_into_compiled(&assign.variable.ast_type);
+				let var = CompiledVariable {
+					type_: type_.clone(),
+					ident: (&assign.variable.ident)
+						.try_into()
+						.expect(&format!("{:#?}", assign.variable)),
+					initialised: false,
+				};
+				body.push_str(&compile_variable_assignment(ctx, &var, &assign.expr));
+				if !assign.reassignment {
+					variables.push_str(&format!("(local ${} {})\n", var.ident, var.local_type()));
+					ctx.vars.push(var);
+				}
+			}
+			ASTBlockStatement::FunctionCall(call) => {
+				// TODO: special functions
+				if call.name == "__print_format" {
+					let special = compile_format_print_call(ctx, &call.args);
+					body.push_str(&special);
+					continue;
+				}
+
+				let args: Vec<String> = call.args.iter().map(|a| a.compile(ctx)).collect();
+				let args = args.join(" ");
+				let name = if let Some(var) = &call.variable {
+					// TODO: dotted ident support
+					let var_name: String = (&var.ident).try_into().unwrap();
+					format!(
+						"__{}_class_{} (get_local ${})",
+						var.ast_type.name(),
+						call.name,
+						var_name
+					)
+				} else {
+					call.name.clone()
+				};
+				body.push_str(&format!("(call ${name} {args})\n"));
+			}
+			ASTBlockStatement::Return(stmt) => {
+				// TODO: ASTFunction return type
+				let ret = stmt
+					.expr
+					.compile(ctx, &CompiledType::Internal(InternalType::Int32), 0);
+				assert!(ret.len() == 1, "Return expression len needs to be 1");
+				let ret = &ret[0].expr;
+
+				body.push_str(&format!("(return {ret}\n)"))
+			}
+			ASTBlockStatement::IfStmt(stmt) => {
+				let mut inner_stmts = String::new();
+				for inner_block in &stmt.block.statements {
+					match inner_block {
+						ASTBlockStatement::Return(stmt) => {
+							let ret = stmt.expr.compile(
+								ctx,
+								&CompiledType::Internal(InternalType::Int32),
+								0,
+							);
+							assert!(ret.len() == 1, "Return expression len needs to be 1");
+							let ret = &ret[0].expr;
+							inner_stmts.push_str(&format!("(return {ret}\n)"))
+						}
+						_ => panic!("Only return in if blocks"),
+					}
+				}
+
+				body.push_str(&format!(
+					"(if {} (then {}))\n",
+					stmt.conditional.compile(ctx),
+					inner_stmts
+				))
+			}
+		}
+	}
+
+	instructions.push_str(&variables);
+	instructions.push_str(&body);
+	instructions.push(')');
+	instructions.push('\n');
 }
 
 #[derive(Debug)]
@@ -427,282 +852,39 @@ impl Compiler {
 		Self { ast }
 	}
 
-	/// Add data and return the created item
-	fn add_data(ctx: &mut CompileCtx, data: ASTFunctionCallArg) -> GlobalData {
-		// first 4096 bytes are reserved for internal functions
-		let start = if ctx.global_data.len() == 0 {
-			4096
-		} else {
-			let last = ctx.global_data.last().unwrap();
-			last.start + last.data_size(ctx) as i32
-		};
-
-		let new_data = GlobalData { start, data };
-
-		ctx.global_data.push(new_data.clone());
-		new_data
-	}
-
-	fn compile_args(ctx: &mut CompileCtx, args: &Vec<ASTFunctionCallArg>) -> String {
-		let mut arg_str = String::new();
-		for arg in args {
-			let data = Self::add_data(ctx, arg.clone());
-			arg_str.push_str(&data.function_arg(&ctx))
-		}
-
-		arg_str
-	}
-
-	fn is_special_function(function: &ASTFunctionCall) -> bool {
-		function.name == "__print_format"
-	}
-
-	fn compile_special_function(ctx: &mut CompileCtx, args: &Vec<ASTFunctionCallArg>) -> String {
-		let mut function = String::new();
-
-		if args.is_empty() {
-			panic!("__print_format requires at least 1 argument");
-		}
-
-		let format_arg = if let ASTFunctionCallArg::String(s) = &args[0] {
-			s
-		} else {
-			panic!("__print_format's first argument needs to be a static string");
-		};
-
-		let mut format = &format_arg[..];
-		let mut arg_idx: usize = 1;
-		let mut str_buf = String::new();
-		while !format.is_empty() {
-			if format.starts_with("{}") {
-				// Print the current string
-				let data = Self::add_data(ctx, ASTFunctionCallArg::String(str_buf));
-				str_buf = String::new();
-				function.push_str(&format!("(call $__print_str {})\n", data.function_arg(ctx)));
-
-				// Print the argument
-				let arg = &args[arg_idx];
-				match arg {
-					ASTFunctionCallArg::Char(c) => function
-						.push_str(&format!("(call $__print_char (i32.const {}))\n", *c as i32)),
-					ASTFunctionCallArg::Int32(val) => {
-						function.push_str(&format!("(call $__print_int (i32.const {}))\n", val))
-					}
-					ASTFunctionCallArg::String(_) => {
-						let data = Self::add_data(ctx, arg.clone());
-						function
-							.push_str(&format!("(call $__print_str {})\n", data.function_arg(ctx)))
-					}
-					ASTFunctionCallArg::Ident(ident) => {
-						function.push_str(&format!("(call $__print_int (get_local ${ident}))\n"))
-					}
-					ASTFunctionCallArg::DottedIdent(_) => todo!(),
-				}
-
-				format = &format[2..];
-				arg_idx += 1;
-			} else {
-				str_buf.push_str(&format[0..1]);
-				format = &format[1..];
-			}
-		}
-
-		if !str_buf.is_empty() {
-			let data = Self::add_data(ctx, ASTFunctionCallArg::String(str_buf));
-			function.push_str(&format!("(call $__print_str {})\n", data.function_arg(ctx)));
-		}
-
-		function
-	}
-
-	fn add_ctx_variable(ctx: &mut CompileCtx, ident: &ASTIdent, type_: &ASTType) {
-		match &type_ {
-			ASTType::Int32(_) => (),
-			ASTType::String(_) => {
-				let type_ = ctx.types.iter().find(|t| t.name == "String").unwrap();
-				ctx.vars.push(Variable {
-					ident: ident.clone(),
-					type_: type_.clone(),
-				})
-			}
-			ASTType::Custom(class) => {
-				let type_ = ctx.types.iter().find(|t| t.name == class.name).unwrap();
-				ctx.vars.push(Variable {
-					ident: ident.clone(),
-					type_: type_.clone(),
-				})
-			}
-			ASTType::Array(array) => ctx.vars.push(Variable {
-				ident: ident.clone(),
-				type_: CompiledType {
-					name: "item_size".into(),
-					members: Vec::new(),
-				},
-			}),
-		}
-	}
-
-	fn compile_function(
-		ctx: &mut CompileCtx,
-		instructions: &mut String,
-		fn_name: &str,
-		function: &ASTFunction,
-	) {
-		// pointer and variables are local to functions
-		ctx.ptrs = Vec::new();
-		ctx.vars = Vec::new();
-
-		let mut variables = String::new();
-		let mut body = String::new();
-
-		instructions.push_str(&format!("(func ${}", fn_name));
-		if function.args.len() > 0 {
-			instructions.push_str("(param");
-			for _ in &function.args {
-				instructions.push_str(" i32");
-			}
-			instructions.push(')');
-		}
-
-		if function.returns {
-			instructions.push_str("(result i32)\n");
-		} else {
-			instructions.push('\n');
-		}
-
-		for (idx, var) in function.args.iter().enumerate() {
-			let var_ident: String = (&var.ident).try_into().unwrap();
-			body.push_str(&format!("(set_local ${} (local.get {}))\n", var_ident, idx));
-			variables.push_str(&format!("(local ${} i32)\n", var_ident));
-			Self::add_ctx_variable(ctx, &var.ident, &var.ast_type);
-		}
-
-		for block in &function.body.statements {
-			ctx.variable_type = None;
-			match block {
-				ASTBlockStatement::Assignment(assign) => {
-					ctx.variable_type = Some(assign.variable.ast_type.clone());
-					match &assign.variable.ident {
-						ASTIdent::Ident(local_variable) => {
-							if !assign.reassignment {
-								variables.push_str(&format!("(local ${} i32)\n", local_variable));
-							}
-							let (set_local, compiled) =
-								assign.expr.compile(ctx, Some(&assign.variable.ident));
-							if set_local {
-								body.push_str(&format!(
-									"(set_local ${} {})\n",
-									local_variable, compiled
-								));
-							} else {
-								body.push_str(&compiled);
-							}
-						}
-						ASTIdent::DottedIdent((ident, dotted)) => {
-							// dotted assignment cannot ever be set locally
-							let (_, compiled) =
-								assign.expr.compile(ctx, Some(&assign.variable.ident));
-							let offset = ctx.dottet_ident_type((ident, dotted)).offset;
-
-							body.push_str(
-								&format!("(i32.store (i32.add (get_local ${ident}) (i32.const {offset})) {compiled})\n")
-							);
-						}
-					}
-
-					Self::add_ctx_variable(ctx, &assign.variable.ident, &assign.variable.ast_type);
-				}
-				ASTBlockStatement::FunctionCall(call) => {
-					if Self::is_special_function(&call) {
-						let special = Self::compile_special_function(ctx, &call.args);
-						body.push_str(&special);
-					} else {
-						let args = Self::compile_args(ctx, &call.args);
-						let name = if let Some(var) = &call.variable {
-							let var_name: String = (&var.ident).try_into().unwrap();
-							format!(
-								"__{}_class_{} (get_local ${})",
-								var.ast_type.name(),
-								call.name,
-								var_name
-							)
-						} else {
-							call.name.clone()
-						};
-						body.push_str(&format!("(call ${} {})\n", name, args));
-					}
-				}
-				ASTBlockStatement::Return(stmt) => {
-					body.push_str(&format!("(return {})\n", stmt.expr.compile(ctx, None).1))
-				}
-				ASTBlockStatement::IfStmt(stmt) => {
-					let mut inner_stmts = String::new();
-					for inner_block in &stmt.block.statements {
-						match inner_block {
-							ASTBlockStatement::Return(inner_stmt) => inner_stmts.push_str(
-								&format!("(return {})\n", inner_stmt.expr.compile(ctx, None).1),
-							),
-							_ => panic!("Only return in if blocks"),
-						}
-					}
-
-					body.push_str(&format!(
-						"(if {} (then {}))\n",
-						stmt.conditional.compile(ctx),
-						inner_stmts
-					))
-				}
-			}
-		}
-
-		instructions.push_str(&variables);
-		for (idx, ptr) in ctx.ptrs.iter().enumerate() {
-			if ptr.anonymous {
-				instructions.push_str(&format!("(local $__pointer{} i32)\n", idx));
-			}
-		}
-		for pointer in &ctx.ptrs {
-			instructions.push_str(&pointer.setup);
-		}
-		instructions.push_str(&body);
-		instructions.push(')');
-	}
-
 	pub fn compile(&mut self) -> String {
 		let mut instructions = String::new();
-		let types = CompiledType::from_classes(&self.ast.custom_types);
 		let mut ctx = CompileCtx {
-			types,
-			variable_type: None,
-			global_data: Vec::new(),
-			ptrs: Vec::new(),
 			vars: Vec::new(),
+			classes: Vec::new(),
+			static_data: Vec::new(),
 		};
 
 		for class in &self.ast.custom_types {
+			ctx.add_ast_class(class);
 			for method in &class.methods {
 				let fn_name = format!("__{}_class_{}", class.name, method.name);
-				Self::compile_function(&mut ctx, &mut instructions, &fn_name, method);
+				compile_function(&mut ctx, &mut instructions, &fn_name, method);
 			}
 		}
 
 		for function in &self.ast.nodes {
-			Self::compile_function(&mut ctx, &mut instructions, &function.name, function);
+			compile_function(&mut ctx, &mut instructions, &function.name, &function)
 		}
 
-		let data_end = if let Some(end) = ctx.global_data.iter().last() {
-			end.start + end.data_size(&ctx) as i32
+		let data: Vec<String> = ctx
+			.static_data
+			.iter()
+			.map(|sd| format!("(data (i32.const {}) {})", sd.start(), sd.value()))
+			.collect();
+		let data = data.join("\n");
+
+		let data_end = if let Some(end) = ctx.static_data.iter().last() {
+			end.start() + end.size()
 		} else {
 			// Internal functions reserve 4096 bytes so the "heap" has to start there
 			4096
 		};
-		let data: Vec<String> = ctx
-			.global_data
-			.iter()
-			.filter(|gd| gd.is_global())
-			.map(|gd| format!("(data (i32.const {}) {})", gd.start, gd.data_value()))
-			.collect();
-		let data = data.join("\n");
 
 		format!(
 			";; Autogenerated module, do not modify
@@ -715,16 +897,17 @@ impl Compiler {
 			(import \"internals\" \"__init_memory\" (func $__init_memory (param i32)))
 			(import \"internals\" \"__reserve_bytes\" (func $__reserve_bytes (param i32) (result i32)))
 			(import \"internals\" \"__string_concat\" (func $__string_concat (param i32) (param i32) (result i32)))
-			(import \"internals\" \"__print_str\" (func $__print_str (param i32) (param i32)))
+			(import \"internals\" \"__string_concat2\" (func $__string_concat2 (param i64) (param i64) (result i64)))
+			(import \"internals\" \"__print_str\" (func $__print_str (param i64)))
 			(import \"internals\" \"__print_str_ptr\" (func $__print_str_ptr (param i32)))
 			;; shared internal memory
 			(import \"internals\" \"memory\" (memory 0))
 
 			;; Generated memory
-			{}
+			{data}
 
 			;; generated functions
-			{}
+			{instructions}
 
 			;; We always have to export main
 			(export \"main\" (func $main))
@@ -734,8 +917,6 @@ impl Compiler {
 			)
 			(export \"init\" (func $init))
 		)
-			",
-			data, instructions
-		)
+			")
 	}
 }
