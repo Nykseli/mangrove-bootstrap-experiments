@@ -7,9 +7,11 @@
 	(export "memory" (memory 0))
 
 	;; reserves bytes 0-11
-	(func $__print_str (param i32) (param i32)
-		(i32.store (i32.const 0) (local.get 0))
-		(i32.store (i32.const 4) (local.get 1))
+	(func $__print_str (param i64)
+		;; Function structure is packed into i64 that we can just point
+		;; load into data structre and treat the data as i32 and wasm
+		;; will understand ptr is stored in the high i32 and length in low i32
+		(i64.store (i32.const 0) (local.get 0))
 
 		(call $fd_write
 			(i32.const 1) ;; file_descriptor - 1 for stdout
@@ -147,6 +149,7 @@
 
 	;; Concat string1 and string2 pointers, create a new string
 	;; and return the pointer to the newly created string
+	;; @depracated for in favor of __string_concat2
 	(func $__string_concat (param i32) (param i32) (result i32)
 		(local $size1 i32)
 		(local $size2 i32)
@@ -190,4 +193,40 @@
 		(get_local $new_string)
 	)
 	(export "__string_concat" (func $__string_concat))
+
+	;; __string_concat2 takes the two i64 structs, combines them
+	;; and returns thew i64 that represents the string, the ptr value
+	;; points to a newly allocated memory location that needs to be freed later
+	(func $__string_concat2 (param i64) (param i64) (result i64)
+		(local $size1 i32)
+		(local $size2 i32)
+		(local $str_size i32)
+		(local $new_ptr i32)
+		(local $new_string i64)
+
+		;; Sizes are low i32 bits
+		(set_local $size1 (i32.wrap_i64 (i64.shr_u (local.get 0) (i64.const 32))))
+		(set_local $size2 (i32.wrap_i64 (i64.shr_u (local.get 1) (i64.const 32))))
+		;; Add sizes together to get total size
+		(set_local $str_size (i32.add (get_local $size1) (get_local $size2)))
+		;; Allocate new string and get the addr pointer to it
+		(set_local $new_ptr (call $__reserve_bytes (get_local $str_size)))
+
+		;; Copy the first string into new string
+		(call $__mem_n_copy (get_local $new_ptr) (i32.wrap_i64 (local.get 0)) (get_local $size1))
+		;; Copy the second string into new string
+		(call $__mem_n_copy
+			;; string address + offset of the first string
+			(i32.add (get_local $new_ptr) (get_local $size1))
+			(i32.wrap_i64 (local.get 1))
+			(get_local $size2)
+		)
+
+		;; size << 32 | ptr
+		(set_local $new_string (i64.shl (i64.extend_i32_u (get_local $str_size)) (i64.const 32)))
+		(set_local $new_string (i64.xor (i64.extend_i32_u (get_local $new_ptr)) (get_local $new_string)))
+
+		(get_local $new_string)
+	)
+	(export "__string_concat2" (func $__string_concat2))
 )
