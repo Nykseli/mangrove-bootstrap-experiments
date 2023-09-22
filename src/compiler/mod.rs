@@ -31,6 +31,7 @@ impl InternalType {
 	}
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct CompiledArray {
 	/// Total size of the structure in bytes. Element size + length
@@ -47,9 +48,6 @@ struct CompiledClassMember {
 	type_: CompiledType,
 	/// How many bytes from the 0 index
 	offset: i32,
-	// TODO: we can probably get the size from type_
-	/// How big is the member
-	size: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -65,8 +63,8 @@ impl CompiledClass {
 	fn member<'a>(&'a self, name: &str) -> &'a CompiledClassMember {
 		self.members
 			.iter()
-			.find(|m| &m.ident == name)
-			.expect(&format!("Class {} doesn't have a member {name}", self.name))
+			.find(|m| m.ident == name)
+			.unwrap_or_else(|| panic!("Class {} doesn't have a member {name}", self.name))
 	}
 }
 
@@ -99,7 +97,6 @@ impl CompiledType {
 struct CompiledVariable {
 	type_: CompiledType,
 	ident: String,
-	initialised: bool,
 }
 
 impl CompiledVariable {
@@ -150,7 +147,7 @@ impl StaticData {
 
 	fn value(&self) -> String {
 		match self {
-			StaticData::StaticString(s) => format!("\"{}\"", s.value.replace("\n", "\\n")),
+			StaticData::StaticString(s) => format!("\"{}\"", s.value.replace('\n', "\\n")),
 		}
 	}
 }
@@ -169,15 +166,15 @@ impl CompileCtx {
 	fn find_compiled_class<'a>(&'a self, name: &str) -> &'a CompiledClass {
 		self.classes
 			.iter()
-			.find(|c| &c.name == name)
-			.expect(&format!("Class '{name}' is not defined"))
+			.find(|c| c.name == name)
+			.unwrap_or_else(|| panic!("Class '{name}' is not defined"))
 	}
 
 	fn find_variable<'a>(&'a self, name: &str) -> &'a CompiledVariable {
 		self.vars
 			.iter()
-			.find(|v| &v.ident == name)
-			.expect(&format!("Variable '{name}' is not defined"))
+			.find(|v| v.ident == name)
+			.unwrap_or_else(|| panic!("Variable '{name}' is not defined"))
 	}
 
 	fn ast_type_into_compiled(&self, ast_type: &ASTType) -> CompiledType {
@@ -190,7 +187,7 @@ impl CompileCtx {
 			}
 			ASTType::Array(array) => {
 				let type_ = self.ast_type_into_compiled(&array.type_);
-				/// We have to know the size of the array when compiling the type
+				// We have to know the size of the array when compiling the type
 				assert!(array.size > -1);
 				CompiledType::Array(CompiledArray {
 					total_size: type_.size() * array.size,
@@ -211,7 +208,6 @@ impl CompileCtx {
 				ident: member.ident.clone(),
 				type_,
 				offset,
-				size,
 			});
 			offset += size;
 		}
@@ -247,9 +243,9 @@ impl CompileCtx {
 	fn load_dotted_ident(&self, ident: (&str, &str), offset: i32) -> InitExpression {
 		let dotted = ident.1;
 		let ident = ident.0;
-		let var = self.find_variable(&ident);
+		let var = self.find_variable(ident);
 		match &var.type_ {
-			CompiledType::Array(arr) => todo!("Implement Array members"),
+			CompiledType::Array(_arr) => todo!("Implement Array members"),
 			CompiledType::Internal(inter) => match inter {
 				InternalType::String => {
 					if dotted != "length" {
@@ -323,7 +319,7 @@ trait ASTCompile<T> {
 }
 
 impl ASTAssignArg {
-	fn compile(&self, ctx: &mut CompileCtx, ctype: &CompiledType, offset: i32) -> InitExpression {
+	fn compile(&self, ctx: &mut CompileCtx, _ctype: &CompiledType, offset: i32) -> InitExpression {
 		// TODO: Make sure that the ast types are actually correct.
 		//       In theory, AST sould catch the type errors but better to be safe than sorry
 		match self {
@@ -542,7 +538,7 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 					panic!("Expected array type for ASTArrayAccess")
 				};
 
-				vec![access.compile(ctx, &var_arr, offset)]
+				vec![access.compile(ctx, var_arr, offset)]
 			}
 		}
 	}
@@ -566,7 +562,7 @@ fn compile_variable_assignment(
 					panic!("Expected array type for ASTArrayAccess")
 				};
 
-				let expr = access.compile(ctx, &var_arr, 0).expr;
+				let expr = access.compile(ctx, var_arr, 0).expr;
 				return format!("(set_local ${} {expr})", target.ident);
 			} else if let ASTAssignmentExpr::Arg(arg) = expr {
 				return arg.compile(ctx, &target.type_, 0).expr;
@@ -604,7 +600,7 @@ fn compile_variable_assignment(
 					panic!("Expected array type for ASTArrayAccess")
 				};
 
-				let expr = access.compile(ctx, &var_arr, 0).expr;
+				let expr = access.compile(ctx, var_arr, 0).expr;
 				return format!("(set_local ${} {expr})", target.ident);
 			} else if let ASTAssignmentExpr::Arg(arg) = expr {
 				return arg.compile(ctx, &target.type_, 0).expr;
@@ -630,7 +626,7 @@ fn compile_variable_assignment(
 			}
 			assignment
 		}
-		CompiledType::Internal(internal) => {
+		CompiledType::Internal(_internal) => {
 			let expr = expr.compile(ctx, &target.type_, 0);
 			assert!(expr.len() == 1, "Internal assign expr len needs to be 1");
 			let expr = &expr[0].expr;
@@ -673,7 +669,7 @@ fn compile_format_print_call(ctx: &mut CompileCtx, args: &Vec<ASTFunctionCallArg
 					function.push_str(&format!("(call $__print_int (i32.const {}))\n", val))
 				}
 				ASTFunctionCallArg::String(s) => {
-					let sstring = ctx.add_static_string(&s);
+					let sstring = ctx.add_static_string(s);
 					let value = sstring.value();
 					function.push_str(&format!("(call $__print_str (i64.const {value}))\n"));
 				}
@@ -713,7 +709,7 @@ fn compile_function(
 	let mut body = String::new();
 
 	instructions.push_str(&format!("(func ${}", fn_name));
-	if function.args.len() > 0 {
+	if !function.args.is_empty() {
 		instructions.push_str("(param");
 		for (idx, arg) in function.args.iter().enumerate() {
 			let arg_type = ctx.ast_type_into_compiled(&arg.ast_type);
@@ -725,7 +721,6 @@ fn compile_function(
 			ctx.vars.push(CompiledVariable {
 				type_: arg_type,
 				ident: arg_ident,
-				initialised: true,
 			})
 		}
 		instructions.push(')');
@@ -766,8 +761,7 @@ fn compile_function(
 					type_: type_.clone(),
 					ident: (&assign.variable.ident)
 						.try_into()
-						.expect(&format!("{:#?}", assign.variable)),
-					initialised: false,
+						.unwrap_or_else(|_| panic!("{:#?}", assign.variable)),
 				};
 				body.push_str(&compile_variable_assignment(ctx, &var, &assign.expr));
 				if !assign.reassignment {
@@ -869,7 +863,7 @@ impl Compiler {
 		}
 
 		for function in &self.ast.nodes {
-			compile_function(&mut ctx, &mut instructions, &function.name, &function)
+			compile_function(&mut ctx, &mut instructions, &function.name, function)
 		}
 
 		let data: Vec<String> = ctx

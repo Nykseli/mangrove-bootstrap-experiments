@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use crate::ast::{
 	ASTAdd, ASTArrayAccess, ASTArrayInit, ASTArrayType, ASTAssignArg, ASTAssignDottedIdent,
 	ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement, ASTClass,
@@ -21,7 +19,7 @@ impl BlockCtx {
 		self.variables
 			.iter()
 			.find(|v| v.ident == name)
-			.expect(&format!("Variable '{}' not defined", name))
+			.unwrap_or_else(|| panic!("Variable '{}' not defined", name))
 	}
 }
 
@@ -168,7 +166,7 @@ impl Parser {
 						if let ASTType::Custom(class) = &var.ast_type {
 							let member = class
 								.member(dotted.value())
-								.expect(&format!("{} member not found", dotted.value()));
+								.unwrap_or_else(|| panic!("{} member not found", dotted.value()));
 							if !member.type_.has_same_type(target_type) {
 								panic!("Different types: {target_type:#?} {:#?}", member.type_)
 							}
@@ -316,9 +314,9 @@ impl Parser {
 				self.skip_white().unwrap();
 				let ident = match value {
 					ASTAssignArg::Static(_) => panic!("Expected ident"),
-					ASTAssignArg::Ident(ident) => ASTIdent::Ident(ident.ident.clone()),
+					ASTAssignArg::Ident(ident) => ASTIdent::Ident(ident.ident),
 					ASTAssignArg::DottedIdent(ident) => {
-						ASTIdent::DottedIdent((ident.ident.0.clone(), ident.ident.1.clone()))
+						ASTIdent::DottedIdent((ident.ident.0.clone(), ident.ident.1))
 					}
 				};
 
@@ -473,14 +471,14 @@ impl Parser {
 			ASTBlockStatement::FunctionCall(fn_call)
 		} else if next.type_() == TokenType::Ident || next.type_() == TokenType::RelOp {
 			// Ident after type
-			let assign = self.parse_assignment(&ctx, statement, next);
+			let assign = self.parse_assignment(ctx, statement, next);
 			ctx.variables.push(assign.variable.clone());
 			ASTBlockStatement::Assignment(assign)
 		} else if next.type_() == TokenType::AssignOp {
 			// Assign into existing variable
 			let var = ctx.find_variable(statement.value());
 			let assign =
-				self.parse_reassignment(&ctx, var.ast_type.clone(), statement.value().into());
+				self.parse_reassignment(ctx, var.ast_type.clone(), statement.value().into());
 			ASTBlockStatement::Assignment(assign)
 		} else if next.type_() == TokenType::Dot {
 			// Parsing dotted indet/expression
@@ -505,11 +503,13 @@ impl Parser {
 					ASTType::String(_) => todo!(),
 					ASTType::Custom(class) => class
 						.member(dotted.value())
-						.expect(&format!(
-							"Class {} doesn't have a member {}",
-							class.name,
-							dotted.value()
-						))
+						.unwrap_or_else(|| {
+							panic!(
+								"Class {} doesn't have a member {}",
+								class.name,
+								dotted.value()
+							)
+						})
 						.type_
 						.clone(),
 					ASTType::Array(_) => todo!(),
@@ -517,7 +517,7 @@ impl Parser {
 
 				let dotted =
 					ASTIdent::DottedIdent((statement.value().into(), dotted.value().into()));
-				let assign = self.parse_reassignment(&ctx, dotted_type.clone(), dotted);
+				let assign = self.parse_reassignment(ctx, dotted_type, dotted);
 				ASTBlockStatement::Assignment(assign)
 			}
 		} else {
@@ -604,7 +604,7 @@ impl Parser {
 				ident: ident.value().into(),
 			});
 			variables.push(ASTVariable {
-				ast_type: ast_type,
+				ast_type,
 				ident: ident.value().into(),
 			});
 
@@ -623,7 +623,7 @@ impl Parser {
 		let return_type = self.skip_white().unwrap();
 		let returns = match return_type.type_() {
 			TokenType::NoneType => false,
-			/// Just assuming that it's Int32
+			// Just assuming that it's Int32
 			TokenType::Ident => true,
 			_ => panic!("Didn't expect {return_type:#?}"),
 		};

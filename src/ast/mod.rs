@@ -209,7 +209,7 @@ pub enum ASTIdent {
 }
 
 impl ASTIdent {
-	pub fn ident<'a>(&'a self) -> &'a str {
+	pub fn ident(&self) -> &str {
 		match self {
 			ASTIdent::Ident(ident) => ident,
 			ASTIdent::DottedIdent(dotted) => &dotted.0,

@@ -4,6 +4,7 @@ use super::{
 };
 
 /// Err means EOF
+#[allow(clippy::result_unit_err)]
 type TokenResult<T> = Result<T, ()>;
 
 #[derive(Debug)]
@@ -55,6 +56,7 @@ impl Tokeniser {
 		self.from_read_start(start, type_)
 	}
 
+	#[allow(clippy::wrong_self_convention)]
 	fn from_read_start(&self, start: ReadStart, type_: TokenType) -> TokenResult<Token> {
 		let value: String = self.file[start.read_pos..self.read_pos].iter().collect();
 		let val_len = value.len();
@@ -68,6 +70,7 @@ impl Tokeniser {
 		}
 	}
 
+	#[allow(clippy::result_unit_err)]
 	pub fn next_token(&mut self) -> TokenResult<Token> {
 		if self.eof {
 			self.gen_token(TokenType::Eof)
@@ -76,6 +79,7 @@ impl Tokeniser {
 		}
 	}
 
+	#[allow(clippy::result_unit_err)]
 	pub fn peek_token(&mut self, count: usize) -> TokenResult<Token> {
 		let current_char = self.current_char;
 		let read_pos = self.read_pos;
