@@ -208,6 +208,15 @@ pub enum ASTIdent {
 	DottedIdent((String, String)),
 }
 
+impl ASTIdent {
+	pub fn ident<'a>(&'a self) -> &'a str {
+		match self {
+			ASTIdent::Ident(ident) => ident,
+			ASTIdent::DottedIdent(dotted) => &dotted.0,
+		}
+	}
+}
+
 impl PartialEq for ASTIdent {
 	fn eq(&self, other: &Self) -> bool {
 		match (self, other) {
