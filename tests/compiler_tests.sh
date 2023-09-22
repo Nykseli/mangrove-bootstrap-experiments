@@ -55,9 +55,9 @@ do
 	else
 		printf "${RED}Failed${NC}\n"
 		echo "---- Expected output ----"
-		echo $OUTPUT_LINES
+		echo "$OUTPUT_LINES"
 		echo "---- Capured output ----"
-		echo $RUN_OUT
+		echo "$RUN_OUT"
 		exit 1
 	fi
 done

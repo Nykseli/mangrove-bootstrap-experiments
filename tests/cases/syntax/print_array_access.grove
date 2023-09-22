@@ -1,0 +1,25 @@
+// Output:
+// 2
+// Hello world!
+// 20
+
+class Duck
+{
+	Int32 val
+}
+
+function main() -> none
+{
+	Array<Int32> foo = [1, 2, 3]
+	Array<String> bar = ["Hello", "Hello world!", "world!"]
+	Array<Duck> baz = [{val: 10}, {val: 20}, {val: 30}]
+	Int32 foor = foo[1]
+	String barr = bar[1]
+	Duck bazr = baz[1]
+	__print_int(foor)
+	__print_char('\n')
+	__print_str(barr)
+	__print_char('\n')
+	__print_int(bazr.val)
+	__print_char('\n')
+}

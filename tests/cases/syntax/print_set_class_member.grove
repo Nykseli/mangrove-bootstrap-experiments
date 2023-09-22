@@ -24,7 +24,7 @@ function main() -> none
 	String foo = "Hello world\n"
 	quack.set_msg(foo)
 	quack.set_val(321)
-	__print_str_ptr(quack._prvmsg)
+	__print_str(quack._prvmsg)
 	__print_int(quack.val)
 	__print_char('\n')
 }

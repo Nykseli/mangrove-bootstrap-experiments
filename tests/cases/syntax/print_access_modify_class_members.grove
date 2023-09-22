@@ -12,7 +12,7 @@ function print_duck(Duck duck) -> none
 {
 	String msg = duck.msg
 	__print_str("Duck msg: ")
-	__print_str_ptr(msg)
+	__print_str(msg)
 	__print_str("\nWith length: ")
 	__print_int(msg.length)
 	__print_str("\nand Duck value: ")

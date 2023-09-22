@@ -1,0 +1,41 @@
+// Output:
+// Duck msg: foobar
+// and Duck value: 123
+// Duck msg: foobar2
+// and Duck value: 321
+
+class Duck {
+	Int32 val
+	String msg
+
+	function set_message(String msg) -> none
+	{
+		this.msg = msg
+	}
+}
+
+function print_duck(Duck duck) -> none
+{
+	__print_str("Duck msg: ")
+	__print_str(duck.msg)
+	__print_str("\nand Duck value: ")
+	__print_int(duck.val)
+	__print_char('\n')
+}
+
+
+function main() -> none
+{
+	Array<Duck> ducks = [{msg: "Ref 1\n", val: 123}, {msg: "Ref2\n", val: 321}]
+	Int32 idx = 0
+	Duck duck_ref0 = ducks[idx]
+	duck_ref0.set_message("foobar")
+	idx = idx + 1
+	Duck duck_ref1 = ducks[idx]
+	duck_ref1.set_message("foobar2")
+
+	Duck tmp = ducks[0]
+	print_duck(tmp)
+	tmp = ducks[1]
+	print_duck(tmp)
+}

@@ -1,0 +1,14 @@
+// Output:
+// 1
+// 2
+
+
+function main() -> none
+{
+	Int32 foo = 1
+	__print_int(foo)
+	__print_char('\n')
+	foo = foo + 1
+	__print_int(foo)
+	__print_char('\n')
+}

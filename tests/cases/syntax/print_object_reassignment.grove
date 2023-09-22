@@ -1,0 +1,16 @@
+// Output:
+// 123
+// 321
+
+class Duck {
+	Int32 val
+}
+function main() -> none
+{
+	Duck duck = {val: 123}
+	__print_int(duck.val)
+	__print_char('\n')
+	duck = {val: 321}
+	__print_int(duck.val)
+	__print_char('\n')
+}
