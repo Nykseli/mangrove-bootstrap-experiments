@@ -1,0 +1,22 @@
+// Output:
+// Message: Foobar
+// Value: 123
+
+class Foo
+{
+	String msg
+	Int32 value
+}
+
+function main() -> none
+{
+	Array<Array<Foo, 1>, 1> foo = [[{msg: "Foobar", value: 123}]]
+	Array<Foo, 1> bar = foo[0]
+	Foo baz = bar[0]
+	__print_str("Message: ")
+	__print_str(baz.msg)
+	__print_char('\n')
+	__print_str("Value: ")
+	__print_int(baz.value)
+	__print_char('\n')
+}
