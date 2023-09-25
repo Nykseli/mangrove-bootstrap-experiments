@@ -197,7 +197,9 @@ impl Parser {
 				}
 
 				if let Some(var) = ctx.variables.iter().find(|v| v.ident == value.value()) {
-					if let ASTType::Array(array) = &var.ast_type {
+					if var.ast_type.has_same_type(target_type) {
+						// noop
+					} else if let ASTType::Array(array) = &var.ast_type {
 						if !array.type_.has_same_type(target_type) {
 							panic!("Different types: {target_type:#?} {:#?}", array.type_)
 						}
@@ -452,13 +454,19 @@ impl Parser {
 		}
 	}
 
-	fn parse_return_statement(&mut self, ctx: &BlockCtx) -> ASTReturn {
+	fn parse_return_statement(
+		&mut self,
+		ctx: &BlockCtx,
+		return_type: Option<&ASTType>,
+	) -> ASTReturn {
+		// TODO: support none return types
+		let ret = return_type.unwrap_or_else(|| panic!("Return type cannot be none"));
 		// TODO: Target type should be block's type
-		let expr = self.parse_assign_expr(ctx, &ASTType::Int32(ASTInt32Type {}));
+		let expr = self.parse_assign_expr(ctx, ret);
 		ASTReturn { expr }
 	}
 
-	fn parse_if_stmt(&mut self, ctx: &BlockCtx) -> ASTIfStmt {
+	fn parse_if_stmt(&mut self, ctx: &BlockCtx, return_type: Option<&ASTType>) -> ASTIfStmt {
 		let value_token = self.skip_white().unwrap();
 		// TODO: poperly figure out the target type
 		let target_type = ASTType::Int32(ASTInt32Type {});
@@ -477,7 +485,7 @@ impl Parser {
 			_ => panic!("I have no idea what's happening"),
 		};
 
-		let block = self.parse_block(None);
+		let block = self.parse_block(None, return_type);
 		ASTIfStmt { block, conditional }
 	}
 
@@ -573,7 +581,11 @@ impl Parser {
 		}
 	}
 
-	fn parse_block(&mut self, variables: Option<Vec<ASTVariable>>) -> ASTBlock {
+	fn parse_block(
+		&mut self,
+		variables: Option<Vec<ASTVariable>>,
+		return_type: Option<&ASTType>,
+	) -> ASTBlock {
 		let left_brace = self.skip_white().unwrap();
 		if left_brace.type_() != TokenType::LeftBrace {
 			panic!("Expected left brace");
@@ -596,10 +608,10 @@ impl Parser {
 			if statement.type_() == TokenType::Ident {
 				statements.push(self.parse_ident_statement(&mut ctx, statement))
 			} else if statement.type_() == TokenType::ReturnStmt {
-				let return_stmt = self.parse_return_statement(&ctx);
+				let return_stmt = self.parse_return_statement(&ctx, return_type);
 				statements.push(ASTBlockStatement::Return(return_stmt))
 			} else if statement.type_() == TokenType::IfStmt {
-				let if_stmt = self.parse_if_stmt(&ctx);
+				let if_stmt = self.parse_if_stmt(&ctx, return_type);
 				statements.push(ASTBlockStatement::IfStmt(if_stmt))
 			} else {
 				panic!("Expected identifier got: {statement:#?}")
@@ -670,13 +682,13 @@ impl Parser {
 
 		let return_type = self.skip_white().unwrap();
 		let returns = match return_type.type_() {
-			TokenType::NoneType => false,
+			TokenType::NoneType => None,
 			// Just assuming that it's Int32
-			TokenType::Ident => true,
+			TokenType::Ident => Some(self.parse_ast_type(&return_type)),
 			_ => panic!("Didn't expect {return_type:#?}"),
 		};
 
-		let body = self.parse_block(Some(variables));
+		let body = self.parse_block(Some(variables), returns.as_ref());
 
 		ASTFunction::new(name.into(), args, body, returns)
 	}
