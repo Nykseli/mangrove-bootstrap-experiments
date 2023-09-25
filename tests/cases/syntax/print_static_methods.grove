@@ -1,0 +1,24 @@
+// Output:
+// 123
+// Hello world
+
+class Foo
+{
+	static function printInt() -> none
+	{
+		Int32 this = 123
+		__print_int(this)
+		__print_char('\n')
+	}
+
+	static function printString(String str) -> none
+	{
+		__print_str(str)
+	}
+}
+
+function main() -> none
+{
+	Foo.printInt()
+	Foo.printString("Hello world\n")
+}
