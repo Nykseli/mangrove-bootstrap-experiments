@@ -80,6 +80,7 @@ pub struct ASTFunctionCall {
 	pub args: Vec<ASTFunctionCallArg>,
 	/// is return value used somewhere
 	pub return_used: bool,
+	pub static_: bool,
 }
 
 impl ASTFunctionCall {
@@ -88,12 +89,14 @@ impl ASTFunctionCall {
 		variable: Option<ASTVariable>,
 		args: Vec<ASTFunctionCallArg>,
 		return_used: bool,
+		static_: bool,
 	) -> Self {
 		Self {
 			name,
 			variable,
 			args,
 			return_used,
+			static_,
 		}
 	}
 }
@@ -335,6 +338,7 @@ pub struct ASTFunction {
 	/// Int32 arguments
 	pub args: Vec<ASTVariable>,
 	pub body: ASTBlock,
+	pub static_: bool,
 	/// Only none and Int32 are supported
 	pub returns: bool,
 }
@@ -346,6 +350,7 @@ impl ASTFunction {
 			args,
 			body,
 			returns,
+			static_: false,
 		}
 	}
 }
@@ -367,5 +372,9 @@ pub struct ASTClass {
 impl ASTClass {
 	pub fn member<'a>(&'a self, name: &'a str) -> Option<&'a ASTClassMember> {
 		self.members.iter().find(|m| m.ident == name)
+	}
+
+	pub fn method<'a>(&'a self, name: &'a str) -> Option<&'a ASTFunction> {
+		self.methods.iter().find(|m| m.name == name)
 	}
 }
