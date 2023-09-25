@@ -780,14 +780,15 @@ fn compile_function(
 				let args: Vec<String> = call.args.iter().map(|a| a.compile(ctx)).collect();
 				let args = args.join(" ");
 				let name = if let Some(var) = &call.variable {
-					// TODO: dotted ident support
-					let var_name: String = (&var.ident).try_into().unwrap();
-					format!(
-						"__{}_class_{} (get_local ${})",
-						var.ast_type.name(),
-						call.name,
-						var_name
-					)
+					let local = if call.static_ {
+						"".into()
+					} else {
+						// TODO: dotted ident support
+						let var_name: String = (&var.ident).try_into().unwrap();
+						format!("(get_local ${var_name})")
+					};
+
+					format!("__{}_class_{} {local}", var.ast_type.name(), call.name,)
 				} else {
 					call.name.clone()
 				};
