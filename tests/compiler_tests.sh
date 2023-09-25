@@ -27,12 +27,8 @@ if [ -z "$WASM_PATH" ]; then
 	exit 1
 fi
 
-
-SYNTAX_ROOT="tests/cases/syntax/"
-GROVE_FILES=($(find $SYNTAX_ROOT -name "*.grove" -not -name "fixme_*"))
-
-for FILE in "${GROVE_FILES[@]}"
-do
+test_file() {
+	FILE=$1
 	WAT_PATH=$(echo $FILE | sed 's/\.grove/\.wat/')
 	echo Compiling $FILE
 
@@ -60,4 +56,18 @@ do
 		echo "$RUN_OUT"
 		exit 1
 	fi
+}
+
+if [[ ! -z "$1" ]]; then
+	test_file $1
+	exit 0
+fi
+
+
+SYNTAX_ROOT="tests/cases/syntax/"
+GROVE_FILES=($(find $SYNTAX_ROOT -name "*.grove" -not -name "fixme_*"))
+
+for FILE in "${GROVE_FILES[@]}"
+do
+	test_file $FILE
 done
