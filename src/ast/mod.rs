@@ -339,12 +339,17 @@ pub struct ASTFunction {
 	pub args: Vec<ASTVariable>,
 	pub body: ASTBlock,
 	pub static_: bool,
-	/// Only none and Int32 are supported
-	pub returns: bool,
+	// Option::None is none type
+	pub returns: Option<ASTType>,
 }
 
 impl ASTFunction {
-	pub fn new(name: String, args: Vec<ASTVariable>, body: ASTBlock, returns: bool) -> Self {
+	pub fn new(
+		name: String,
+		args: Vec<ASTVariable>,
+		body: ASTBlock,
+		returns: Option<ASTType>,
+	) -> Self {
 		Self {
 			name,
 			args,
