@@ -339,7 +339,12 @@ impl Parser {
 	}
 
 	fn parse_array_type(&mut self) -> ASTArrayType {
-		let ident = self.skip_white().unwrap();
+		let mut ident = self.skip_white().unwrap();
+		// Nested Arrays
+		if ident.type_() == TokenType::RelOp && ident.value() == "<" {
+			ident = self.skip_white().unwrap();
+		}
+
 		if ident.type_() != TokenType::Ident {
 			panic!("Expected identifier {ident:#?}");
 		}
@@ -360,7 +365,7 @@ impl Parser {
 		};
 
 		if next.type_() != TokenType::RelOp || next.value() != ">" {
-			panic!("Expected '>' {ident:#?}");
+			panic!("Expected '>' {next:#?}");
 		}
 
 		ASTArrayType {
