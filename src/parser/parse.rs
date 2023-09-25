@@ -15,11 +15,8 @@ struct BlockCtx {
 }
 
 impl BlockCtx {
-	fn find_variable<'a>(&'a self, name: &str) -> &'a ASTVariable {
-		self.variables
-			.iter()
-			.find(|v| v.ident == name)
-			.unwrap_or_else(|| panic!("Variable '{}' not defined", name))
+	fn find_variable<'a>(&'a self, name: &str) -> Option<&'a ASTVariable> {
+		self.variables.iter().find(|v| v.ident == name)
 	}
 }
 
@@ -75,6 +72,21 @@ impl Parser {
 			panic!("Expected left paren {left_paren:#?}");
 		} */
 
+		let is_static = if let Some(var) = &variable {
+			if let ASTType::Custom(class) = &var.ast_type {
+				class
+					.method(name)
+					.unwrap_or_else(|| {
+						panic!("Class {} doesn't have the method {name}", class.name)
+					})
+					.static_
+			} else {
+				false
+			}
+		} else {
+			false
+		};
+
 		let mut args = Vec::<ASTFunctionCallArg>::new();
 		let mut arg = self.skip_white().unwrap();
 		while arg.type_() != TokenType::RightParen {
@@ -114,7 +126,7 @@ impl Parser {
 			panic!("Expected right paren");
 		}
 
-		ASTFunctionCall::new(name.into(), variable, args, used)
+		ASTFunctionCall::new(name.into(), variable, args, used, is_static)
 	}
 
 	fn parse_value_token(
@@ -481,7 +493,9 @@ impl Parser {
 			ASTBlockStatement::Assignment(assign)
 		} else if next.type_() == TokenType::AssignOp {
 			// Assign into existing variable
-			let var = ctx.find_variable(statement.value());
+			let var = ctx
+				.find_variable(statement.value())
+				.unwrap_or_else(|| panic!("Variable '{}' not defined", statement.value()));
 			let assign =
 				self.parse_reassignment(ctx, var.ast_type.clone(), statement.value().into());
 			ASTBlockStatement::Assignment(assign)
@@ -493,14 +507,43 @@ impl Parser {
 			}
 
 			let next_peek = self.skip_white_peek().unwrap();
-			let var = ctx.find_variable(statement.value());
 
 			// Ident function call
 			if next_peek.type_() == TokenType::LeftParen {
 				self.skip_white().unwrap();
-				let fn_call = self.parse_function_call(Some(var.clone()), dotted.value(), false);
+				let fn_call = if let Some(var) = ctx.find_variable(statement.value()) {
+					// regular method call
+					let fn_call =
+						self.parse_function_call(Some(var.clone()), dotted.value(), false);
+					if fn_call.static_ {
+						panic!("Class method '{}' is static", dotted.value())
+					}
+					fn_call
+				} else {
+					// Static method call
+					let class = self
+						.custom_type(statement.value())
+						.unwrap_or_else(|| panic!("Class '{}' is not defined", statement.value()));
+					// hacky temp variable
+					let tmpvar = ASTVariable {
+						ast_type: ASTType::Custom(class.clone()),
+						ident: "".into(),
+					};
+					let fn_call = self.parse_function_call(Some(tmpvar), dotted.value(), false);
+					if !fn_call.static_ {
+						panic!(
+							"Class method '{}' in '{}' is not static",
+							&class.name,
+							dotted.value()
+						)
+					}
+					fn_call
+				};
 				ASTBlockStatement::FunctionCall(fn_call)
 			} else {
+				let var = ctx
+					.find_variable(statement.value())
+					.unwrap_or_else(|| panic!("Variable '{}' not defined", statement.value()));
 				// reassign into dotted ident
 				self.skip_white().unwrap();
 				let dotted_type = match &var.ast_type {
@@ -655,20 +698,35 @@ impl Parser {
 		let mut methods: Vec<ASTFunction> = Vec::new();
 		let mut ident = self.skip_white().unwrap();
 		while ident.type_() != TokenType::RightBrace {
+			let is_static = if ident.type_() == TokenType::StorageSpec && ident.value() == "static"
+			{
+				ident = self.skip_white().unwrap();
+				true
+			} else {
+				false
+			};
+
 			if ident.type_() == TokenType::FunctionDef {
 				// TODO: this creates a lot copies, optimise it
-				let class = ASTType::Custom(ASTClass {
-					members: members.clone(),
-					name: name.clone(),
-					methods: Vec::new(),
-				});
+				let method = if is_static {
+					let mut method = self.parse_function(None);
+					method.static_ = true;
+					method
+				} else {
+					let class = ASTType::Custom(ASTClass {
+						members: members.clone(),
+						name: name.clone(),
+						methods: Vec::new(),
+					});
 
-				let var = ASTVariable {
-					ident: "this".into(),
-					ast_type: class,
+					let var = ASTVariable {
+						ident: "this".into(),
+						ast_type: class,
+					};
+
+					self.parse_function(Some(var))
 				};
 
-				let method = self.parse_function(Some(var));
 				methods.push(method);
 				ident = self.skip_white().unwrap();
 				continue;
