@@ -566,6 +566,14 @@ fn compile_variable_assignment(
 				return format!("(set_local ${} {expr})", target.ident);
 			} else if let ASTAssignmentExpr::Arg(arg) = expr {
 				return arg.compile(ctx, &target.type_, 0).expr;
+			} else if let ASTAssignmentExpr::FunctionCall(_arg) = expr {
+				let expr = expr.compile(ctx, &target.type_, 0);
+				assert!(
+					expr.len() == 1,
+					"Array init funciton call can only be one expression"
+				);
+				let expr = &expr[0].expr;
+				return format!("(set_local ${} {expr})", target.ident);
 			} else {
 				panic!("Expected Array init expression");
 			};
@@ -604,8 +612,16 @@ fn compile_variable_assignment(
 				return format!("(set_local ${} {expr})", target.ident);
 			} else if let ASTAssignmentExpr::Arg(arg) = expr {
 				return arg.compile(ctx, &target.type_, 0).expr;
+			} else if let ASTAssignmentExpr::FunctionCall(_arg) = expr {
+				let expr = expr.compile(ctx, &target.type_, 0);
+				assert!(
+					expr.len() == 1,
+					"Class init funciton call can only be one expression"
+				);
+				let expr = &expr[0].expr;
+				return format!("(set_local ${} {expr})", target.ident);
 			} else {
-				panic!("Expected Class init expression");
+				panic!("Expected Class init expression {expr:#?}");
 			};
 
 			let mut assignment = format!(
@@ -727,8 +743,12 @@ fn compile_function(
 	}
 
 	// TODO: function returns type
-	if function.returns {
-		instructions.push_str("(result i32)\n");
+	if let Some(ret) = &function.returns {
+		if ctx.ast_type_into_compiled(ret).is32b() {
+			instructions.push_str("(result i32)\n");
+		} else {
+			instructions.push_str("(result i64)\n");
+		}
 	} else {
 		instructions.push('\n');
 	}
@@ -795,10 +815,13 @@ fn compile_function(
 				body.push_str(&format!("(call ${name} {args})\n"));
 			}
 			ASTBlockStatement::Return(stmt) => {
-				// TODO: ASTFunction return type
-				let ret = stmt
-					.expr
-					.compile(ctx, &CompiledType::Internal(InternalType::Int32), 0);
+				// TODO: support none return
+				let ret = function
+					.returns
+					.as_ref()
+					.unwrap_or_else(|| panic!("Cannot return none"));
+				let type_ = ctx.ast_type_into_compiled(ret);
+				let ret = stmt.expr.compile(ctx, &type_, 0);
 				assert!(ret.len() == 1, "Return expression len needs to be 1");
 				let ret = &ret[0].expr;
 
