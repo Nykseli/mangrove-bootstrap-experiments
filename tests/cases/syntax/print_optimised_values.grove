@@ -1,0 +1,51 @@
+// Output:
+// 52
+// Hello World
+// Hello Class
+// Hello Array
+
+class Foo
+{
+	String msg
+}
+
+function class_opt() -> none
+{
+	String foo = "Hello"
+	Foo f = {msg: foo + " Class\n"}
+	__print_str(f.msg)
+}
+
+function array_opt() -> none
+{
+	String foo = "Hello"
+	Array<String> arr = [foo + " Array\n"]
+	String f = arr[0]
+	__print_str(f)
+}
+
+function str_opt() -> none
+{
+	String foo = "Hello"
+	foo = foo + " "
+	String bar = foo + "World"
+	String zoo = foo + "world!"
+	String hello = bar + "\n"
+	__print_str(hello)
+}
+
+function main() -> none
+{
+	Int32 foo = 12
+	foo = foo + 12
+	Int32 bar = 16
+	Int32 zoo = foo + 16
+	foo = foo + 12
+	Int32 sum = foo + bar
+	__print_int(sum)
+	__print_char('\n')
+
+	str_opt()
+	class_opt()
+	array_opt()
+}
