@@ -1,9 +1,11 @@
 (module
 	(import "wasi_unstable" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
 
-	(memory 1)
+	;; Count of 64KiB pages
+	(memory 100)
 	;; Internals exports memory for all the other modules to use
-	;; Internals also reserves the first 4096 bytes
+	;; Internals also reserves the first 1kib bytes.
+	;; 4096 bytes for internal things, rest is for stack.
 	(export "memory" (memory 0))
 
 	;; reserves bytes 0-11
@@ -107,6 +109,8 @@
 		(i32.store (i32.const 28) (get_local $start))
 		;; Save the current pointer to 32
 		(i32.store (i32.const 32) (get_local $start))
+		;; Save the stack pointer addr (starts after internal memory)
+		(i32.store (i32.const 128) (i32.const 4096))
 	)
 	(export "__init_memory" (func $__init_memory))
 
@@ -146,6 +150,7 @@
 			(br_if $copy (i32.lt_s (get_local $counter) (local.get 2)))
 		)
 	)
+	(export "__mem_n_copy" (func $__mem_n_copy))
 
 	;; Concat string1 and string2 pointers, create a new string
 	;; and return the pointer to the newly created string
@@ -229,4 +234,32 @@
 		(get_local $new_string)
 	)
 	(export "__string_concat2" (func $__string_concat2))
+
+	;; Stack operations reserve 128-159 bytes (32 bytes)
+	;; 128-131 stores the current stack ptr
+	(func $__get_stack_ptr (result i32)
+		(i32.load (i32.const 128))
+	)
+	(export "__get_stack_ptr" (func $__get_stack_ptr))
+
+	(func $__set_stack_ptr (param i32)
+		(i32.store (i32.const 128) (local.get 0))
+	)
+
+	;; Reserve N bytes by adding N to stack pointer and returning the prev ptr
+	(func $__reserve_stack_bytes (param i32) (result i32)
+		(local $__ptr i32)
+		(set_local $__ptr (call $__get_stack_ptr))
+		;; TODO: Stack overflow error
+		(call $__set_stack_ptr (i32.add (get_local $__ptr) (local.get 0)))
+		(get_local $__ptr)
+	)
+	(export "__reserve_stack_bytes" (func $__reserve_stack_bytes))
+
+	;; Release N bytes by removing N from stack pointer
+	(func $__release_stack_bytes (param i32)
+		;; TODO: Stack underflow error
+		(call $__set_stack_ptr (i32.sub (call $__get_stack_ptr) (local.get 0)))
+	)
+	(export "__release_stack_bytes" (func $__release_stack_bytes))
 )
