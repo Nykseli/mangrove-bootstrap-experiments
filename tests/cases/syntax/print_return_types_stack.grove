@@ -1,0 +1,47 @@
+// Output:
+// 5
+// Hello
+// Test
+// Strings
+
+class Foo
+{
+	String msg
+	Int32 val
+}
+
+function new_foo() -> Foo
+{
+	Foo f = {msg: "Test\n", val: 123}
+	return f
+}
+
+function new_arr() -> Array<String, 2>
+{
+	Array<String, 2> arr = ["Array", "Strings\n"]
+	return arr
+}
+
+function ret() -> Int32
+{
+	return 5
+}
+
+function rets() -> String
+{
+	return "Hello\n"
+}
+
+function main() -> none
+{
+	Int32 foo = ret()
+	String h = rets()
+	Foo f = new_foo()
+	Array<String, 2> a = new_arr()
+	String a1 = a[1]
+	__print_int(foo)
+	__print_char('\n')
+	__print_str(h)
+	__print_str(f.msg)
+	__print_str(a1)
+}
