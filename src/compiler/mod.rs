@@ -91,6 +91,14 @@ impl CompiledType {
 			CompiledType::Internal(intr) => intr.is32b(),
 		}
 	}
+
+	fn copy_size(&self) -> Option<i32> {
+		match self {
+			CompiledType::Array(a) => Some(a.total_size),
+			CompiledType::Class(c) => Some(c.total_size),
+			CompiledType::Internal(_) => None,
+		}
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -177,6 +185,17 @@ impl CompileCtx {
 			.unwrap_or_else(|| panic!("Variable '{name}' is not defined"))
 	}
 
+	fn var_stack_offset(&self, var: &CompiledVariable) -> i32 {
+		let mut offset = 0;
+		for ctx_var in &self.vars {
+			if ctx_var.ident == var.ident {
+				return offset;
+			}
+			offset += ctx_var.type_.size()
+		}
+		panic!("Compiled variable {var:#?} is not in stack")
+	}
+
 	fn ast_type_into_compiled(&self, ast_type: &ASTType) -> CompiledType {
 		match ast_type {
 			ASTType::Int32(_) => CompiledType::Internal(InternalType::Int32),
@@ -224,8 +243,8 @@ impl CompileCtx {
 			// Next start should be right after the previous memory allocation
 			stat.size() + stat.start()
 		} else {
-			// first 4096 bytes are reserved for internal functions and data
-			4096
+			// first 1024 * 1024 bytes are reserved for internal functions and data
+			1024 * 1024
 		};
 
 		let new_string = StaticData::StaticString(StaticString {
@@ -566,34 +585,42 @@ fn compile_variable_assignment(
 				return format!("(set_local ${} {expr})", target.ident);
 			} else if let ASTAssignmentExpr::Arg(arg) = expr {
 				return arg.compile(ctx, &target.type_, 0).expr;
-			} else if let ASTAssignmentExpr::FunctionCall(_arg) = expr {
-				let expr = expr.compile(ctx, &target.type_, 0);
-				assert!(
-					expr.len() == 1,
-					"Array init funciton call can only be one expression"
-				);
-				let expr = &expr[0].expr;
+			} else if let ASTAssignmentExpr::FunctionCall(func) = expr {
+				let mut arg_str = String::new();
+				for arg in &func.args {
+					arg_str.push_str(&arg.compile(ctx));
+				}
+
+				if target.type_.copy_size().is_some() {
+					let offset = ctx.var_stack_offset(target);
+					arg_str.push_str(&format!(
+						"(i32.add (get_local $__stack_ptr) (i32.const {offset}))"
+					));
+				}
+
+				let expr = format!("(call ${} {arg_str})\n", func.name);
 				return format!("(set_local ${} {expr})", target.ident);
 			} else {
 				panic!("Expected Array init expression");
 			};
 
-			let mut assignment = format!(
-				"(set_local ${} (call $__reserve_bytes (i32.const {})))\n",
-				target.ident,
-				target.type_.size()
-			);
+			let stack_offset = ctx.var_stack_offset(target);
+			let mut assignment = String::new();
 
 			let inits = expr.compile(ctx, array, 0);
 			for init in inits {
 				assignment.push_str(&format!(
-					"({} (i32.add (get_local ${}) (i32.const {})) {})\n",
+					"({} (i32.add (get_local $__stack_ptr) (i32.const {})) {})\n",
 					init.store(),
-					target.ident,
-					init.offset,
+					init.offset + stack_offset,
 					init.expr
 				))
 			}
+
+			assignment.push_str(&format!(
+				"(set_local ${} (i32.add (get_local $__stack_ptr) (i32.const {stack_offset})))\n",
+				target.ident
+			));
 			assignment
 		}
 		CompiledType::Class(class) => {
@@ -612,34 +639,42 @@ fn compile_variable_assignment(
 				return format!("(set_local ${} {expr})", target.ident);
 			} else if let ASTAssignmentExpr::Arg(arg) = expr {
 				return arg.compile(ctx, &target.type_, 0).expr;
-			} else if let ASTAssignmentExpr::FunctionCall(_arg) = expr {
-				let expr = expr.compile(ctx, &target.type_, 0);
-				assert!(
-					expr.len() == 1,
-					"Class init funciton call can only be one expression"
-				);
-				let expr = &expr[0].expr;
+			} else if let ASTAssignmentExpr::FunctionCall(func) = expr {
+				let mut arg_str = String::new();
+				for arg in &func.args {
+					arg_str.push_str(&arg.compile(ctx));
+				}
+
+				if target.type_.copy_size().is_some() {
+					let offset = ctx.var_stack_offset(target);
+					arg_str.push_str(&format!(
+						"(i32.add (get_local $__stack_ptr) (i32.const {offset}))"
+					));
+				}
+
+				let expr = format!("(call ${} {arg_str})\n", func.name);
 				return format!("(set_local ${} {expr})", target.ident);
 			} else {
 				panic!("Expected Class init expression {expr:#?}");
 			};
 
-			let mut assignment = format!(
-				"(set_local ${} (call $__reserve_bytes (i32.const {})))\n",
-				target.ident,
-				target.type_.size()
-			);
+			let stack_offset = ctx.var_stack_offset(target);
+			let mut assignment = String::new();
 
 			let inits = expr.compile(ctx, class, 0);
 			for init in inits {
 				assignment.push_str(&format!(
-					"({} (i32.add (get_local ${}) (i32.const {})) {})\n",
+					"({} (i32.add (get_local $__stack_ptr) (i32.const {})) {})\n",
 					init.store(),
-					target.ident,
-					init.offset,
+					init.offset + stack_offset,
 					init.expr
 				))
 			}
+
+			assignment.push_str(&format!(
+				"(set_local ${} (i32.add (get_local $__stack_ptr) (i32.const {stack_offset})))\n",
+				target.ident
+			));
 			assignment
 		}
 		CompiledType::Internal(_internal) => {
@@ -719,12 +754,26 @@ fn compile_function(
 	function: &ASTFunction,
 ) {
 	// pointer and variables are local to functions
-	ctx.vars = Vec::new();
+	ctx.vars = function
+		.body
+		.variables
+		.iter()
+		.map(|v| CompiledVariable {
+			type_: ctx.ast_type_into_compiled(&v.ast_type),
+			ident: (&v.ident).try_into().unwrap(),
+		})
+		.collect();
 
 	let mut variables = String::new();
 	let mut body = String::new();
 
 	instructions.push_str(&format!("(func ${}", fn_name));
+	let fn_stack_size = ctx.vars.iter().fold(0, |acc, v| acc + v.type_.size());
+	variables.push_str("(local $__stack_ptr i32)\n");
+	body.push_str(&format!(
+		"(set_local $__stack_ptr (call $__reserve_stack_bytes (i32.const {fn_stack_size})))\n"
+	));
+
 	if !function.args.is_empty() {
 		instructions.push_str("(param");
 		for (idx, arg) in function.args.iter().enumerate() {
@@ -739,7 +788,28 @@ fn compile_function(
 				ident: arg_ident,
 			})
 		}
+
+		if let Some(ret) = &function.returns {
+			if ctx.ast_type_into_compiled(ret).copy_size().is_some() {
+				body.push_str(&format!(
+					"(set_local $__return_ptr (local.get {}))\n",
+					function.args.len()
+				));
+				variables.push_str("(local $__return_ptr i32)\n");
+				instructions.push_str(" i32")
+			}
+		}
+
 		instructions.push(')');
+	} else if let Some(ret) = &function.returns {
+		if ctx.ast_type_into_compiled(ret).copy_size().is_some() {
+			instructions.push_str("(param i32)");
+			body.push_str(&format!(
+				"(set_local $__return_ptr (local.get {}))\n",
+				function.args.len()
+			));
+			variables.push_str("(local $__return_ptr i32)\n");
+		}
 	}
 
 	// TODO: function returns type
@@ -776,17 +846,14 @@ fn compile_function(
 					continue;
 				}
 
-				let type_ = ctx.ast_type_into_compiled(&assign.variable.ast_type);
-				let var = CompiledVariable {
-					type_: type_.clone(),
-					ident: (&assign.variable.ident)
-						.try_into()
-						.unwrap_or_else(|_| panic!("{:#?}", assign.variable)),
-				};
+				let ident: String = (&assign.variable.ident)
+					.try_into()
+					.unwrap_or_else(|_| panic!("{:#?}", assign.variable));
+				// TODO: remove the clone here
+				let var = ctx.find_variable(&ident).clone();
 				body.push_str(&compile_variable_assignment(ctx, &var, &assign.expr));
 				if !assign.reassignment {
 					variables.push_str(&format!("(local ${} {})\n", var.ident, var.local_type()));
-					ctx.vars.push(var);
 				}
 			}
 			ASTBlockStatement::FunctionCall(call) => {
@@ -825,7 +892,18 @@ fn compile_function(
 				assert!(ret.len() == 1, "Return expression len needs to be 1");
 				let ret = &ret[0].expr;
 
-				body.push_str(&format!("(return {ret}\n)"))
+				// TODO: mem_n_copy to the $__return_ptr, if needed
+				body.push_str(&format!(
+					"(call $__release_stack_bytes (i32.const {fn_stack_size}))\n"
+				));
+
+				if let Some(size) = type_.copy_size() {
+					// FIXME: heap allocated string not copied, only the pointer
+					body.push_str(&format!("(call $__mem_n_copy (get_local $__return_ptr) {ret} (i32.const {size}) \n)"));
+					body.push_str("(return (get_local $__return_ptr)\n)")
+				} else {
+					body.push_str(&format!("(return {ret}\n)"))
+				}
 			}
 			ASTBlockStatement::IfStmt(stmt) => {
 				let mut inner_stmts = String::new();
@@ -839,6 +917,10 @@ fn compile_function(
 							);
 							assert!(ret.len() == 1, "Return expression len needs to be 1");
 							let ret = &ret[0].expr;
+							// TODO: mem_n_copy to the $__return_ptr, if needed
+							inner_stmts.push_str(&format!(
+								"(call $__release_stack_bytes (i32.const {fn_stack_size}))\n"
+							));
 							inner_stmts.push_str(&format!("(return {ret}\n)"))
 						}
 						_ => panic!("Only return in if blocks"),
@@ -852,6 +934,14 @@ fn compile_function(
 				))
 			}
 		}
+	}
+
+	// if function returns, stack is released just before return
+	// otherwise it needs to be released at the end of the function
+	if function.returns.is_none() {
+		body.push_str(&format!(
+			"(call $__release_stack_bytes (i32.const {fn_stack_size}))\n"
+		));
 	}
 
 	instructions.push_str(&variables);
@@ -900,8 +990,8 @@ impl Compiler {
 		let data_end = if let Some(end) = ctx.static_data.iter().last() {
 			end.start() + end.size()
 		} else {
-			// Internal functions reserve 4096 bytes so the "heap" has to start there
-			4096
+			// Internal functions reserve 1024 * 1024 bytes so the "heap" has to start there
+			1024 * 1024
 		};
 
 		format!(
@@ -914,6 +1004,9 @@ impl Compiler {
 			(import \"internals\" \"__print_int\" (func $__print_int (param i32)))
 			(import \"internals\" \"__init_memory\" (func $__init_memory (param i32)))
 			(import \"internals\" \"__reserve_bytes\" (func $__reserve_bytes (param i32) (result i32)))
+			(import \"internals\" \"__reserve_stack_bytes\" (func $__reserve_stack_bytes (param i32) (result i32)))
+			(import \"internals\" \"__release_stack_bytes\" (func $__release_stack_bytes (param i32)))
+			(import \"internals\" \"__mem_n_copy\" (func $__mem_n_copy (param i32) (param i32) (param i32)))
 			(import \"internals\" \"__string_concat\" (func $__string_concat (param i32) (param i32) (result i32)))
 			(import \"internals\" \"__string_concat2\" (func $__string_concat2 (param i64) (param i64) (result i64)))
 			(import \"internals\" \"__print_str\" (func $__print_str (param i64)))
