@@ -73,7 +73,7 @@ impl Parser {
 		} */
 
 		let is_static = if let Some(var) = &variable {
-			if let ASTType::Custom(class) = &var.ast_type {
+			if let ASTType::Class(class) = &var.ast_type {
 				class
 					.method(name)
 					.unwrap_or_else(|| {
@@ -175,7 +175,7 @@ impl Parser {
 
 					if let Some(var) = ctx.variables.iter().find(|v| v.ident == value.value()) {
 						// TODO: Buildin type member checking
-						if let ASTType::Custom(class) = &var.ast_type {
+						if let ASTType::Class(class) = &var.ast_type {
 							let member = class
 								.member(dotted.value())
 								.unwrap_or_else(|| panic!("{} member not found", dotted.value()));
@@ -222,7 +222,7 @@ impl Parser {
 
 	fn parse_class_init(&mut self, ctx: &BlockCtx, target_type: &ASTType) -> ASTClassInit {
 		// LeftBrace is skipped in parse_assign_expr so we can ignore it
-		let class = if let ASTType::Custom(class) = target_type {
+		let class = if let ASTType::Class(class) = target_type {
 			class
 		} else {
 			panic!("Expected a class type {target_type:#?}")
@@ -396,7 +396,7 @@ impl Parser {
 		} else if type_token.value() == "Array" {
 			ASTType::Array(self.parse_array_type())
 		} else if let Some(custom) = self.custom_type(type_token.value()) {
-			ASTType::Custom(custom)
+			ASTType::Class(custom)
 		} else {
 			panic!("Type '{}' not found", type_token.value())
 		}
@@ -534,7 +534,7 @@ impl Parser {
 						.unwrap_or_else(|| panic!("Class '{}' is not defined", statement.value()));
 					// hacky temp variable
 					let tmpvar = ASTVariable {
-						ast_type: ASTType::Custom(class.clone()),
+						ast_type: ASTType::Class(class.clone()),
 						ident: "".into(),
 					};
 					let fn_call = self.parse_function_call(Some(tmpvar), dotted.value(), false);
@@ -557,7 +557,7 @@ impl Parser {
 				let dotted_type = match &var.ast_type {
 					ASTType::Int32(_) => todo!(),
 					ASTType::String(_) => todo!(),
-					ASTType::Custom(class) => class
+					ASTType::Class(class) => class
 						.member(dotted.value())
 						.unwrap_or_else(|| {
 							panic!(
@@ -725,7 +725,7 @@ impl Parser {
 					method.static_ = true;
 					method
 				} else {
-					let class = ASTType::Custom(ASTClass {
+					let class = ASTType::Class(ASTClass {
 						members: members.clone(),
 						name: name.clone(),
 						methods: Vec::new(),

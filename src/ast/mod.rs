@@ -32,7 +32,7 @@ pub enum ASTType {
 	Int32(ASTInt32Type),
 	Array(ASTArrayType),
 	String(ASTStringType),
-	Custom(ASTClass),
+	Class(ASTClass),
 }
 
 impl ASTType {
@@ -41,14 +41,14 @@ impl ASTType {
 			ASTType::Int32(_) => "Int32".into(),
 			ASTType::Array(_) => "Array".into(),
 			ASTType::String(_) => "String".into(),
-			ASTType::Custom(class) => class.name.clone(),
+			ASTType::Class(class) => class.name.clone(),
 		}
 	}
 
 	pub fn has_same_type(&self, other: &Self) -> bool {
 		// Custom types should be equal if they have the same name
-		if let Self::Custom(c1) = self {
-			if let Self::Custom(c2) = other {
+		if let Self::Class(c1) = self {
+			if let Self::Class(c2) = other {
 				return c1.name == c2.name;
 			}
 		}

@@ -200,7 +200,7 @@ impl CompileCtx {
 		match ast_type {
 			ASTType::Int32(_) => CompiledType::Internal(InternalType::Int32),
 			ASTType::String(_) => CompiledType::Internal(InternalType::String),
-			ASTType::Custom(class) => {
+			ASTType::Class(class) => {
 				let class = self.find_compiled_class(&class.name).clone();
 				CompiledType::Class(class)
 			}
@@ -480,7 +480,7 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 				let function = match fn_type {
 					ASTType::Int32(_) => "i32.add",
 					ASTType::String(_) => "call $__string_concat2",
-					ASTType::Custom(_) => unreachable!("Cannot add two custom types"),
+					ASTType::Class(_) => unreachable!("Cannot add two custom types"),
 					ASTType::Array(_) => unreachable!("Cannot add two array types"),
 				};
 
