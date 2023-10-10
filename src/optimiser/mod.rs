@@ -269,7 +269,7 @@ impl Optimiser {
 	pub fn optimise(&mut self) {
 		let mut ctx = OptimiserCtx { vars: Vec::new() };
 
-		for class in &mut self.parser.custom_types {
+		for class in &mut self.parser.class_types {
 			for method in &mut class.methods {
 				*method = optimise_function(&mut ctx, method)
 			}
