@@ -1,7 +1,8 @@
 use crate::{
 	ast::{
 		ASTArrayAccess, ASTArrayInit, ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTClass,
-		ASTClassInit, ASTFunction, ASTFunctionCallArg, ASTIdent, ASTLtStmt, ASTType, StaticValue,
+		ASTClassInit, ASTEnum, ASTFunction, ASTFunctionCallArg, ASTIdent, ASTLtStmt, ASTType,
+		StaticValue,
 	},
 	parser::parse::Parser,
 };
@@ -69,9 +70,47 @@ impl CompiledClass {
 }
 
 #[derive(Debug, Clone)]
+struct CompiledEnumValue {
+	name: String,
+	value: i32,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledEnum {
+	/// Name of the class
+	name: String,
+	values: Vec<CompiledEnumValue>,
+}
+
+impl CompiledEnum {
+	fn new(enum_: &ASTEnum) -> Self {
+		let values = enum_
+			.values
+			.iter()
+			.map(|v| CompiledEnumValue {
+				name: v.name.clone(),
+				value: v.value,
+			})
+			.collect();
+		Self {
+			values,
+			name: enum_.name.clone(),
+		}
+	}
+
+	fn value<'a>(&'a self, name: &str) -> &'a CompiledEnumValue {
+		self.values
+			.iter()
+			.find(|m| m.name == name)
+			.unwrap_or_else(|| panic!("Enum {} doesn't have a value {name}", self.name))
+	}
+}
+
+#[derive(Debug, Clone)]
 enum CompiledType {
 	Array(CompiledArray),
 	Class(CompiledClass),
+	Enum(CompiledEnum),
 	Internal(InternalType),
 }
 
@@ -81,6 +120,8 @@ impl CompiledType {
 			CompiledType::Array(arr) => arr.total_size,
 			CompiledType::Class(class) => class.total_size,
 			CompiledType::Internal(intr) => intr.size(),
+			// enums are i32 so 4 bytes
+			CompiledType::Enum(_) => 4,
 		}
 	}
 
@@ -88,6 +129,8 @@ impl CompiledType {
 		match &self {
 			// Array and class is pointer and address are i32
 			CompiledType::Array(_) | CompiledType::Class(_) => true,
+			// enum is i32 so i32b
+			CompiledType::Enum(_) => true,
 			CompiledType::Internal(intr) => intr.is32b(),
 		}
 	}
@@ -97,6 +140,8 @@ impl CompiledType {
 			CompiledType::Array(a) => Some(a.total_size),
 			CompiledType::Class(c) => Some(c.total_size),
 			CompiledType::Internal(_) => None,
+			// enums are integers so no need to copy anything
+			CompiledType::Enum(_) => None,
 		}
 	}
 }
@@ -166,6 +211,8 @@ struct CompileCtx {
 	vars: Vec<CompiledVariable>,
 	/// All the compiled classes
 	classes: Vec<CompiledClass>,
+	/// All the compiled enums
+	enums: Vec<CompiledEnum>,
 	/// Statically allocated memory
 	static_data: Vec<StaticData>,
 }
@@ -183,6 +230,10 @@ impl CompileCtx {
 			.iter()
 			.find(|v| v.ident == name)
 			.unwrap_or_else(|| panic!("Variable '{name}' is not defined"))
+	}
+
+	fn check_enum<'a>(&'a self, name: &str) -> Option<&'a CompiledEnum> {
+		self.enums.iter().find(|e| e.name == name)
 	}
 
 	fn var_stack_offset(&self, var: &CompiledVariable) -> i32 {
@@ -214,6 +265,7 @@ impl CompileCtx {
 					element_type: Box::new(type_),
 				})
 			}
+			ASTType::Enum(enum_) => CompiledType::Enum(CompiledEnum::new(enum_)),
 		}
 	}
 
@@ -262,6 +314,15 @@ impl CompileCtx {
 	fn load_dotted_ident(&self, ident: (&str, &str), offset: i32) -> InitExpression {
 		let dotted = ident.1;
 		let ident = ident.0;
+		if let Some(enum_) = self.check_enum(ident) {
+			let value = enum_.value(dotted);
+			return InitExpression {
+				offset,
+				is32b: true,
+				expr: format!("(i32.const {})", value.value),
+			};
+		}
+
 		let var = self.find_variable(ident);
 		match &var.type_ {
 			CompiledType::Array(_arr) => todo!("Implement Array members"),
@@ -280,7 +341,8 @@ impl CompileCtx {
 			},
 			CompiledType::Class(class) => {
 				let member = class.member(dotted);
-				let offset = offset + member.offset;
+				// dotted ident offset are always the member offset
+				let offset = /* offset +  */member.offset;
 				if member.type_.is32b() {
 					InitExpression::new(
 						offset,
@@ -293,6 +355,7 @@ impl CompileCtx {
 					)
 				}
 			}
+			CompiledType::Enum(_) => todo!("Implement enum values"),
 		}
 	}
 }
@@ -357,7 +420,7 @@ impl ASTAssignArg {
 				InitExpression::new(offset, format!("(get_local ${})", ident.ident))
 			}
 			ASTAssignArg::DottedIdent(ident) => {
-				ctx.load_dotted_ident((&ident.ident.0, &ident.ident.1), 0)
+				ctx.load_dotted_ident((&ident.ident.0, &ident.ident.1), offset)
 			}
 		}
 	}
@@ -431,6 +494,7 @@ impl ASTArrayAccess {
 				true => format!("(i32.load {expr})\n"),
 				false => format!("(i64.load {expr})\n"),
 			},
+			CompiledType::Enum(_) => format!("(i32.load {expr})\n"),
 		};
 
 		InitExpression {
@@ -482,6 +546,7 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 					ASTType::String(_) => "call $__string_concat2",
 					ASTType::Class(_) => unreachable!("Cannot add two custom types"),
 					ASTType::Array(_) => unreachable!("Cannot add two array types"),
+					ASTType::Enum(_) => unreachable!("Cannot add two enum types"),
 				};
 
 				let ctype = ctx.ast_type_into_compiled(fn_type);
@@ -680,6 +745,12 @@ fn compile_variable_assignment(
 		CompiledType::Internal(_internal) => {
 			let expr = expr.compile(ctx, &target.type_, 0);
 			assert!(expr.len() == 1, "Internal assign expr len needs to be 1");
+			let expr = &expr[0].expr;
+			format!("(set_local ${} {expr})\n", target.ident)
+		}
+		CompiledType::Enum(_) => {
+			let expr = expr.compile(ctx, &target.type_, 0);
+			assert!(expr.len() == 1, "Enum assign expr len needs to be 1");
 			let expr = &expr[0].expr;
 			format!("(set_local ${} {expr})\n", target.ident)
 		}
@@ -964,11 +1035,16 @@ impl Compiler {
 		let mut instructions = String::new();
 		let mut ctx = CompileCtx {
 			vars: Vec::new(),
+			enums: Vec::new(),
 			classes: Vec::new(),
 			static_data: Vec::new(),
 		};
 
-		for class in &self.ast.custom_types {
+		for enum_ in &self.ast.enum_types {
+			ctx.enums.push(CompiledEnum::new(enum_));
+		}
+
+		for class in &self.ast.class_types {
 			ctx.add_ast_class(class);
 			for method in &class.methods {
 				let fn_name = format!("__{}_class_{}", class.name, method.name);
