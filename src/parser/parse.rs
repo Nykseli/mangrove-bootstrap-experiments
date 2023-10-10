@@ -1,9 +1,9 @@
 use crate::ast::{
 	ASTAdd, ASTArrayAccess, ASTArrayInit, ASTArrayType, ASTAssignArg, ASTAssignDottedIdent,
 	ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement, ASTClass,
-	ASTClassInit, ASTClassInitArg, ASTClassMember, ASTFunction, ASTFunctionCall,
-	ASTFunctionCallArg, ASTIdent, ASTIfStmt, ASTInt32Type, ASTLtStmt, ASTMinus, ASTReturn,
-	ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
+	ASTClassInit, ASTClassInitArg, ASTClassMember, ASTEnum, ASTEnumValue, ASTFunction,
+	ASTFunctionCall, ASTFunctionCallArg, ASTIdent, ASTIfStmt, ASTInt32Type, ASTLtStmt, ASTMinus,
+	ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
 };
 
 use super::tokeniser::Tokeniser;
@@ -24,7 +24,8 @@ impl BlockCtx {
 pub struct Parser {
 	pub lexer: Tokeniser,
 	pub nodes: Vec<ASTFunction>,
-	pub custom_types: Vec<ASTClass>,
+	pub class_types: Vec<ASTClass>,
+	pub enum_types: Vec<ASTEnum>,
 }
 
 impl Parser {
@@ -32,13 +33,19 @@ impl Parser {
 		Self {
 			lexer,
 			nodes: Vec::new(),
-			custom_types: Vec::new(),
+			class_types: Vec::new(),
+			enum_types: Vec::new(),
 		}
 	}
 
-	pub fn custom_type(&self, name: &str) -> Option<ASTClass> {
+	pub fn class_type(&self, name: &str) -> Option<ASTClass> {
 		// TODO: add lifetiems so we can use a ref
-		self.custom_types.iter().find(|ct| ct.name == name).cloned()
+		self.class_types.iter().find(|ct| ct.name == name).cloned()
+	}
+
+	pub fn enum_type(&self, name: &str) -> Option<ASTEnum> {
+		// TODO: add lifetiems so we can use a ref
+		self.enum_types.iter().find(|ct| ct.name == name).cloned()
 	}
 
 	fn skip_white(&mut self) -> Result<Token, ()> {
@@ -184,6 +191,14 @@ impl Parser {
 							}
 						} else {
 							panic!("Only custom type dotted args implemented");
+						}
+					} else if let Some(enum_) = self.enum_type(value.value()) {
+						if enum_.value(dotted.value()).is_none() {
+							panic!(
+								"Enum '{}' doesn\'t have a value '{}'",
+								value.value(),
+								dotted.value()
+							);
 						}
 					} else {
 						// Panic for everything else execpt functions
@@ -395,8 +410,10 @@ impl Parser {
 			ASTType::Int32(ASTInt32Type {})
 		} else if type_token.value() == "Array" {
 			ASTType::Array(self.parse_array_type())
-		} else if let Some(custom) = self.custom_type(type_token.value()) {
+		} else if let Some(custom) = self.class_type(type_token.value()) {
 			ASTType::Class(custom)
+		} else if let Some(custom) = self.enum_type(type_token.value()) {
+			ASTType::Enum(custom)
 		} else {
 			panic!("Type '{}' not found", type_token.value())
 		}
@@ -530,7 +547,7 @@ impl Parser {
 				} else {
 					// Static method call
 					let class = self
-						.custom_type(statement.value())
+						.class_type(statement.value())
 						.unwrap_or_else(|| panic!("Class '{}' is not defined", statement.value()));
 					// hacky temp variable
 					let tmpvar = ASTVariable {
@@ -569,6 +586,7 @@ impl Parser {
 						.type_
 						.clone(),
 					ASTType::Array(_) => todo!(),
+					ASTType::Enum(_) => todo!(),
 				};
 
 				let dotted =
@@ -771,6 +789,43 @@ impl Parser {
 		}
 	}
 
+	fn parse_enum_def(&mut self) -> ASTEnum {
+		let ident = self.skip_white().unwrap();
+		let name: String = if ident.type_() == TokenType::Ident {
+			ident.value().into()
+		} else {
+			panic!("Expected identifier after 'enum'")
+		};
+
+		let left_brace = self.skip_white().unwrap();
+		if left_brace.type_() != TokenType::LeftBrace {
+			panic!("Expected left brace");
+		}
+
+		let mut values: Vec<ASTEnumValue> = Vec::new();
+		let mut value: i32 = 0;
+		let mut ident = self.skip_white().unwrap();
+		while ident.type_() != TokenType::RightBrace {
+			if ident.type_() != TokenType::Ident {
+				panic!("Expected ident in enum {ident:#?}");
+			}
+
+			if values.iter().any(|v| v.name == ident.value()) {
+				panic!("Value '{}' redifined in enum '{name}'", ident.value());
+			}
+
+			values.push(ASTEnumValue {
+				name: ident.value().into(),
+				value,
+			});
+
+			value += 1;
+			ident = self.skip_white().unwrap();
+		}
+
+		ASTEnum { name, values }
+	}
+
 	pub fn parse(&mut self) {
 		let mut current = self.skip_white();
 
@@ -782,7 +837,10 @@ impl Parser {
 				self.nodes.push(function);
 			} else if token.type_() == TokenType::ClassDef {
 				let class = self.parse_class();
-				self.custom_types.push(class.clone());
+				self.class_types.push(class.clone());
+			} else if token.type_() == TokenType::EnumDef {
+				let enum_ = self.parse_enum_def();
+				self.enum_types.push(enum_.clone());
 			} else if token.type_() == TokenType::Comment {
 				// Just ignore for now
 			} else {
