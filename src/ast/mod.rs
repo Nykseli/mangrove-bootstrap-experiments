@@ -33,6 +33,7 @@ pub enum ASTType {
 	Array(ASTArrayType),
 	String(ASTStringType),
 	Class(ASTClass),
+	Enum(ASTEnum),
 }
 
 impl ASTType {
@@ -42,24 +43,21 @@ impl ASTType {
 			ASTType::Array(_) => "Array".into(),
 			ASTType::String(_) => "String".into(),
 			ASTType::Class(class) => class.name.clone(),
+			ASTType::Enum(e) => e.name.clone(),
 		}
 	}
 
 	pub fn has_same_type(&self, other: &Self) -> bool {
-		// Custom types should be equal if they have the same name
-		if let Self::Class(c1) = self {
-			if let Self::Class(c2) = other {
-				return c1.name == c2.name;
+		match (self, other) {
+			// Custom types should be equal if they have the same name
+			(Self::Class(c1), Self::Class(c2)) => c1.name == c2.name,
+			(Self::Enum(e1), Self::Enum(e2)) => e1.name == e2.name,
+			// Arrays have to have the same size and type
+			(Self::Array(a1), Self::Array(a2)) => {
+				a1.size == a2.size && a1.type_.has_same_type(&a2.type_)
 			}
+			(_, _) => discriminant(self) == discriminant(other),
 		}
-
-		if let Self::Array(a1) = self {
-			if let Self::Array(a2) = other {
-				return a1.size == a2.size && a1.type_.has_same_type(&a2.type_);
-			}
-		}
-
-		discriminant(self) == discriminant(other)
 	}
 }
 
@@ -381,5 +379,23 @@ impl ASTClass {
 
 	pub fn method<'a>(&'a self, name: &'a str) -> Option<&'a ASTFunction> {
 		self.methods.iter().find(|m| m.name == name)
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct ASTEnumValue {
+	pub name: String,
+	pub value: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ASTEnum {
+	pub name: String,
+	pub values: Vec<ASTEnumValue>,
+}
+
+impl ASTEnum {
+	pub fn value<'a>(&'a self, name: &'a str) -> Option<&'a ASTEnumValue> {
+		self.values.iter().find(|e| e.name == name)
 	}
 }
