@@ -1,0 +1,24 @@
+// Output:
+// 0
+// 1
+// 2
+
+enum Foo
+{
+	Zero
+	One
+	Two
+}
+
+function main() -> none
+{
+	Foo f0 = Foo.Zero
+	Foo f1 = Foo.One
+	Foo f2 = Foo.Two
+	__print_int(f0)
+	__print_char('\n')
+	__print_int(f1)
+	__print_char('\n')
+	__print_int(f2)
+	__print_char('\n')
+}

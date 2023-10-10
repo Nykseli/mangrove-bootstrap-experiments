@@ -1,0 +1,20 @@
+// Output:
+// 1
+
+enum Bar
+{
+	Zero
+	One
+}
+
+class Foo
+{
+	Bar b
+}
+
+function main() -> none
+{
+	Foo f = {b: Bar.One}
+	__print_int(f.b)
+	__print_char('\n')
+}

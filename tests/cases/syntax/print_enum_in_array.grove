@@ -1,0 +1,25 @@
+// Output:
+// 1
+// 0
+// 2
+
+enum Bar
+{
+	Zero
+	One
+	Two
+}
+
+function main() -> none
+{
+	Array<Bar> a = [Bar.One, Bar.Zero, Bar.Two]
+	Bar b = a[0]
+	__print_int(b)
+	__print_char('\n')
+	b = a[1]
+	__print_int(b)
+	__print_char('\n')
+	b = a[2]
+	__print_int(b)
+	__print_char('\n')
+}
