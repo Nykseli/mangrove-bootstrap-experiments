@@ -69,6 +69,31 @@
 	)
 	(export "__print_int" (func $__print_int))
 
+	(func $__print_int64 (param i64)
+		(local $int i64)
+		(local $rem i32)
+
+		(set_local $int (local.get 0))
+		;; Get the reminder and print it out
+		(i64.rem_u (get_local $int) (i64.const 10))
+		;; 0 is ascii 48 so val+48 gives you the ascii value
+		(i64.add (i64.const 48))
+		;; Down cast to i32 so we can print the value with __print_char
+		(i32.wrap_i64)
+		;; Save reminder that we'll print later
+		(set_local $rem)
+		;; Divide $int by 10
+		(set_local $int (i64.div_s (get_local $int) (i64.const 10)))
+		;; If int is not 0, recursively call $__print_int
+		(if (i64.ne (get_local $int) (i64.const 0))
+			(then (call $__print_int64 (get_local $int)))
+		)
+
+		(get_local $rem)
+		(call $__print_char)
+	)
+	(export "__print_int64" (func $__print_int64))
+
 	(func $__print_str_ptr (param i32)
 		(call $fd_write
 			(i32.const 1) ;; file_descriptor - 1 for stdout
