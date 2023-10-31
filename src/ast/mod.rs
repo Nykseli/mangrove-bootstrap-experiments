@@ -29,6 +29,7 @@ pub struct ASTArrayType {
 
 #[derive(Debug, Clone)]
 pub enum ASTType {
+	Int64,
 	Int32(ASTInt32Type),
 	Array(ASTArrayType),
 	String(ASTStringType),
@@ -39,6 +40,7 @@ pub enum ASTType {
 impl ASTType {
 	pub fn name(&self) -> String {
 		match self {
+			ASTType::Int64 => "Int64".into(),
 			ASTType::Int32(_) => "Int32".into(),
 			ASTType::Array(_) => "Array".into(),
 			ASTType::String(_) => "String".into(),
@@ -65,6 +67,7 @@ impl ASTType {
 pub enum ASTFunctionCallArg {
 	Char(char),
 	Int32(i32),
+	Int64(i64),
 	String(String),
 	Ident(String),
 	DottedIdent((String, String)),
@@ -118,6 +121,7 @@ pub struct ASTAssignDottedIdent {
 #[derive(Debug, Clone)]
 pub enum StaticValue {
 	Int32(i32),
+	Int64(i64),
 	String(String),
 }
 
