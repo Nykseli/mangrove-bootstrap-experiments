@@ -143,19 +143,23 @@ impl Parser {
 		value: &Token,
 	) -> ASTAssignArg {
 		match value.type_() {
-			TokenType::IntLit => {
-				if let ASTType::Int32(_) = target_type {
-					// I've forgotten how to do this properly
-				} else {
-					panic!("Expected int Token")
+			TokenType::IntLit => match target_type {
+				ASTType::Int32(_) => {
+					let value = StaticValue::Int32(value.value().parse::<i32>().unwrap());
+					ASTAssignArg::Static(ASTStaticAssign {
+						value,
+						value_type: ASTType::Int32(ASTInt32Type {}),
+					})
 				}
-
-				let value = StaticValue::Int32(value.value().parse::<i32>().unwrap());
-				ASTAssignArg::Static(ASTStaticAssign {
-					value,
-					value_type: ASTType::Int32(ASTInt32Type {}),
-				})
-			}
+				ASTType::Int64 => {
+					let value = StaticValue::Int64(value.value().parse::<i64>().unwrap());
+					ASTAssignArg::Static(ASTStaticAssign {
+						value,
+						value_type: ASTType::Int64,
+					})
+				}
+				_ => panic!("Expected int Token"),
+			},
 			TokenType::StringLit => {
 				if let ASTType::String(_) = target_type {
 					// I've forgotten how to do this properly
@@ -406,6 +410,8 @@ impl Parser {
 	fn parse_ast_type(&mut self, type_token: &Token) -> ASTType {
 		if type_token.value() == "String" {
 			ASTType::String(ASTStringType::default())
+		} else if type_token.value() == "Int64" {
+			ASTType::Int64
 		} else if type_token.value() == "Int32" {
 			ASTType::Int32(ASTInt32Type {})
 		} else if type_token.value() == "Array" {
@@ -572,6 +578,7 @@ impl Parser {
 				// reassign into dotted ident
 				self.skip_white().unwrap();
 				let dotted_type = match &var.ast_type {
+					ASTType::Int64 => todo!(),
 					ASTType::Int32(_) => todo!(),
 					ASTType::String(_) => todo!(),
 					ASTType::Class(class) => class
