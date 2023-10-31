@@ -12,6 +12,7 @@ impl ASTAssignArg {
 		let val = match self {
 			ASTAssignArg::Static(val) => match &val.value {
 				StaticValue::Int32(val) => ConstantValue::Int32(*val),
+				StaticValue::Int64(val) => ConstantValue::Int64(*val),
 				StaticValue::String(val) => ConstantValue::String(val.clone()),
 			},
 			ASTAssignArg::Ident(ident) => {
@@ -32,6 +33,7 @@ impl ASTFunctionCallArg {
 		let val = match self {
 			ASTFunctionCallArg::Char(_) => return None,
 			ASTFunctionCallArg::Int32(_) => return None,
+			ASTFunctionCallArg::Int64(_) => return None,
 			ASTFunctionCallArg::String(_) => return None,
 			ASTFunctionCallArg::Ident(ident) => {
 				if let Some(var) = ctx.variable(ident) {
@@ -77,6 +79,7 @@ impl ASTAssignmentExpr {
 								*arg = ASTFunctionCallArg::String(str.clone())
 							}
 							ConstantValue::Int32(int) => *arg = ASTFunctionCallArg::Int32(int),
+							ConstantValue::Int64(_) => todo!(),
 						}
 					}
 				}
@@ -121,6 +124,12 @@ impl From<ConstantValue> for ASTAssignmentExpr {
 					value_type: ASTType::Int32(ASTInt32Type {}),
 				}))
 			}
+			ConstantValue::Int64(int) => {
+				ASTAssignmentExpr::Arg(ASTAssignArg::Static(ASTStaticAssign {
+					value: StaticValue::Int64(int),
+					value_type: ASTType::Int64,
+				}))
+			}
 		}
 	}
 }
@@ -129,12 +138,14 @@ impl From<ConstantValue> for ASTAssignmentExpr {
 enum ConstantValue {
 	String(String),
 	Int32(i32),
+	Int64(i64),
 }
 
 impl ConstantValue {
 	fn combine(&self, other: &Self) -> Self {
 		match (&self, &other) {
 			(ConstantValue::Int32(i1), ConstantValue::Int32(i2)) => ConstantValue::Int32(i1 + i2),
+			(ConstantValue::Int64(i1), ConstantValue::Int64(i2)) => ConstantValue::Int64(i1 + i2),
 			(ConstantValue::String(s1), ConstantValue::String(s2)) => {
 				let mut s = s1.clone();
 				s.push_str(s2);
@@ -218,6 +229,9 @@ fn optimise_function(ctx: &mut OptimiserCtx, function: &mut ASTFunction) -> ASTF
 									}
 									ConstantValue::Int32(i) => {
 										args.push(ASTFunctionCallArg::Int32(*i))
+									}
+									ConstantValue::Int64(i) => {
+										args.push(ASTFunctionCallArg::Int64(*i))
 									}
 								}
 							} else {
