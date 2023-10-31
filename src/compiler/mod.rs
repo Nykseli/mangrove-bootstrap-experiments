@@ -11,6 +11,7 @@ use crate::{
 enum InternalType {
 	String,
 	Int32,
+	Int64,
 }
 
 impl InternalType {
@@ -20,6 +21,7 @@ impl InternalType {
 			InternalType::String => 8,
 			// i32 is always 4 bytes
 			InternalType::Int32 => 4,
+			InternalType::Int64 => 8,
 		}
 	}
 
@@ -28,6 +30,7 @@ impl InternalType {
 			// string is 2x32b values
 			InternalType::String => false,
 			InternalType::Int32 => true,
+			InternalType::Int64 => false,
 		}
 	}
 }
@@ -249,6 +252,7 @@ impl CompileCtx {
 
 	fn ast_type_into_compiled(&self, ast_type: &ASTType) -> CompiledType {
 		match ast_type {
+			ASTType::Int64 => CompiledType::Internal(InternalType::Int64),
 			ASTType::Int32(_) => CompiledType::Internal(InternalType::Int32),
 			ASTType::String(_) => CompiledType::Internal(InternalType::String),
 			ASTType::Class(class) => {
@@ -338,6 +342,7 @@ impl CompileCtx {
 					)
 				}
 				InternalType::Int32 => todo!("Implement Int32 members"),
+				InternalType::Int64 => todo!("Implement Int64 members"),
 			},
 			CompiledType::Class(class) => {
 				let member = class.member(dotted);
@@ -409,6 +414,9 @@ impl ASTAssignArg {
 				StaticValue::Int32(val) => {
 					InitExpression::new(offset, format!("(i32.const {val})"))
 				}
+				StaticValue::Int64(val) => {
+					InitExpression::new(offset, format!("(i64.const {val})"))
+				}
 				StaticValue::String(string) => {
 					let sstring = ctx.add_static_string(string);
 					let value = sstring.value();
@@ -445,6 +453,7 @@ impl ASTFunctionCallArg {
 		match &self {
 			ASTFunctionCallArg::Char(v) => format!("(i32.const {})", *v as i32),
 			ASTFunctionCallArg::Int32(v) => format!("(i32.const {v})"),
+			ASTFunctionCallArg::Int64(v) => format!("(i64.const {v})"),
 			ASTFunctionCallArg::String(s) => {
 				let sstring = ctx.add_static_string(s);
 				let value = sstring.value();
@@ -542,6 +551,7 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 				};
 
 				let function = match fn_type {
+					ASTType::Int64 => "i64.add",
 					ASTType::Int32(_) => "i32.add",
 					ASTType::String(_) => "call $__string_concat2",
 					ASTType::Class(_) => unreachable!("Cannot add two custom types"),
@@ -789,6 +799,9 @@ fn compile_format_print_call(ctx: &mut CompileCtx, args: &Vec<ASTFunctionCallArg
 				}
 				ASTFunctionCallArg::Int32(val) => {
 					function.push_str(&format!("(call $__print_int (i32.const {}))\n", val))
+				}
+				ASTFunctionCallArg::Int64(val) => {
+					function.push_str(&format!("(call $__print_int (i64.const {}))\n", val))
 				}
 				ASTFunctionCallArg::String(s) => {
 					let sstring = ctx.add_static_string(s);
@@ -1078,6 +1091,7 @@ impl Compiler {
 			;; TODO: only import required ones
 			(import \"internals\" \"__print_char\" (func $__print_char (param i32)))
 			(import \"internals\" \"__print_int\" (func $__print_int (param i32)))
+			(import \"internals\" \"__print_int64\" (func $__print_int64 (param i64)))
 			(import \"internals\" \"__init_memory\" (func $__init_memory (param i32)))
 			(import \"internals\" \"__reserve_bytes\" (func $__reserve_bytes (param i32) (result i32)))
 			(import \"internals\" \"__reserve_stack_bytes\" (func $__reserve_stack_bytes (param i32) (result i32)))
