@@ -1,0 +1,19 @@
+// Output:
+// 123
+// 124
+
+
+function main() -> none
+{
+	Int64 a1 = 121
+	Int64 b1 = 2
+	Int64 c1 = a1 + b1
+	__print_int64(c1)
+	__print_char('\n')
+
+	Int32 a2 = 121
+	Int32 b2 = 3
+	Int32 c2 = a2 + b2
+	__print_int(c2)
+	__print_char('\n')
+}
