@@ -1,6 +1,8 @@
 // Output:
 // 123
 // 124
+// -123
+// -124
 
 
 function main() -> none
@@ -15,5 +17,17 @@ function main() -> none
 	Int32 b2 = 3
 	Int32 c2 = a2 + b2
 	__print_int(c2)
+	__print_char('\n')
+
+	Int64 a3 = -125
+	Int64 b3 = 2
+	Int64 c3 = a3 + b3
+	__print_int64(c3)
+	__print_char('\n')
+
+	Int32 a4 = -126
+	Int32 b4 = 2
+	Int32 c4 = a4 + b4
+	__print_int(c4)
 	__print_char('\n')
 }
