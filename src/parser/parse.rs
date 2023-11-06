@@ -142,6 +142,18 @@ impl Parser {
 		target_type: &ASTType,
 		value: &Token,
 	) -> ASTAssignArg {
+		let value = if value.type_() == TokenType::AddOp {
+			let next = self.skip_white_peek().unwrap();
+			if next.type_() != TokenType::IntLit {
+				panic!("Expected IntLit after AddOP, found {value:#?}");
+			}
+			let mut int = self.skip_white().unwrap();
+			int.set_value(format!("{}{}", value.value(), int.value()));
+			int
+		} else {
+			value.clone()
+		};
+
 		match value.type_() {
 			TokenType::IntLit => match target_type {
 				ASTType::Int32(_) => {
