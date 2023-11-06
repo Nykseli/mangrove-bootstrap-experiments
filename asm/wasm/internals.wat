@@ -51,13 +51,13 @@
 
 		(set_local $int (local.get 0))
 		;; print - prefix if negative bit is set
-		(if (i32.and (i32.const 0x8000) (get_local $int))
+		(if (i32.and (i32.const 0x80000000) (get_local $int))
 			(then
 				;; 45 is acii '-'
 				(call $__print_char (i32.const 45))
 				;; Turn the two's compiliment negative value into regular positive value
-				(set_local $int (i32.and (i32.const 0x7fff) (get_local $int)))
-				(set_local $int (i32.xor (i32.const 0x7fff) (get_local $int)))
+				(set_local $int (i32.and (i32.const 0x7fffffff) (get_local $int)))
+				(set_local $int (i32.xor (i32.const 0x7fffffff) (get_local $int)))
 				(set_local $int (i32.add (i32.const 1) (get_local $int)))
 			)
 		)
@@ -92,8 +92,8 @@
 				;; 45 is acii '-'
 				(call $__print_char (i32.const 45))
 				;; Turn the two's compiliment negative value into regular positive value
-				(set_local $int (i64.and (i64.const 0x7fffffff) (get_local $int)))
-				(set_local $int (i64.xor (i64.const 0x7fffffff) (get_local $int)))
+				(set_local $int (i64.and (i64.const 0x7fffffffffffffff) (get_local $int)))
+				(set_local $int (i64.xor (i64.const 0x7fffffffffffffff) (get_local $int)))
 				(set_local $int (i64.add (i64.const 1) (get_local $int)))
 			)
 		)
