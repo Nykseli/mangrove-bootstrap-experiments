@@ -50,6 +50,17 @@
 		(local $rem i32)
 
 		(set_local $int (local.get 0))
+		;; print - prefix if negative bit is set
+		(if (i32.and (i32.const 0x8000) (get_local $int))
+			(then
+				;; 45 is acii '-'
+				(call $__print_char (i32.const 45))
+				;; Turn the two's compiliment negative value into regular positive value
+				(set_local $int (i32.and (i32.const 0x7fff) (get_local $int)))
+				(set_local $int (i32.xor (i32.const 0x7fff) (get_local $int)))
+				(set_local $int (i32.add (i32.const 1) (get_local $int)))
+			)
+		)
 		;; Get the reminder and print it out
 		(i32.rem_u (get_local $int) (i32.const 10))
 		;; 0 is ascii 48 so val+48 gives you the ascii value
@@ -74,6 +85,18 @@
 		(local $rem i32)
 
 		(set_local $int (local.get 0))
+		;; print - prefix if negative bit is set
+		;; if requires a i32 value so we need to be a bit hacky with right shift
+		(if (i32.wrap_i64 (i64.shr_u (get_local $int) (i64.const 63)))
+			(then
+				;; 45 is acii '-'
+				(call $__print_char (i32.const 45))
+				;; Turn the two's compiliment negative value into regular positive value
+				(set_local $int (i64.and (i64.const 0x7fffffff) (get_local $int)))
+				(set_local $int (i64.xor (i64.const 0x7fffffff) (get_local $int)))
+				(set_local $int (i64.add (i64.const 1) (get_local $int)))
+			)
+		)
 		;; Get the reminder and print it out
 		(i64.rem_u (get_local $int) (i64.const 10))
 		;; 0 is ascii 48 so val+48 gives you the ascii value
