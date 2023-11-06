@@ -162,22 +162,122 @@
 	)
 	(export "__init_memory" (func $__init_memory))
 
+	;; Find a freed block of memory that fit's the required size.
+	;; Returns zero if no address is found.
+	(func $__find_freed_block (param i32) (result i32)
+		(local $size i32)
+		(local $current i32)
+
+		;; loop from the start of the heap and try to find freed block of memory that's big enough.
+		(set_local $current (i32.load (i32.const 28)))
+		(loop $finder
+			(set_local $size (i32.load (get_local $current)))
+			;; Check if it's free
+			(if (i32.xor (get_local $size) (i32.const 0x80000000))
+				(then
+					;; If the size is 0, this block is never used.
+					;; It means that all the blocks are used or two small and
+					;; a new one needs to be allocated
+					(if (i32.eq (get_local $size) (i32.const 0))
+						(then (return (i32.const 0)))
+					)
+					;; If the size is less than or equal to the block's size
+					;; return the starting address
+					(if (i32.le_s (get_local $size) (local.get 0))
+						(then (return
+							(i32.add (get_local $current) (i32.const 8))
+						))
+					)
+				)
+			)
+
+			;; get the size without the used bit
+			(set_local $size (i32.and (get_local $current) (i32.const 0x7fffffff)))
+			;; Add the size + the 8 bytes for the metadata
+			(set_local $current (i32.add (get_local $size) (i32.const 8)))
+		)
+		(i32.const 0)
+	)
+
 	;; Reserve N bytes that fit into 64 byte blocks
-	(func $__reserve_bytes (param i32) (result i32)
+	;; The data is saved in a followign structure:
+	;; +--------------------------------+
+	;; |0         1         2         3 |
+	;; +--------------------------------+
+	;; |01234567890123456789012345678901|
+	;; +-+------------------------------+
+	;; |u|          data size           |
+	;; |s|              in              |
+	;; |e|             bytes            |
+	;; |d|             (31)             |
+	;; +-+------------------------------+
+	;; |            reserved            |
+	;; +--------------------------------+
+	;; |        First data block        |
+	;; |           (56 bytes)           |
+	;; +--------------------------------+
+	;; |    Next optional data blocks   |
+	;; |         (64 bytes each)        |
+	;; +--------------------------------+
+	;;
+	;; This function returns the address off the first data block.
+	;; When you need to access the meta data, just subtract 8 from the address
+	;; of the first data block.
+	(func $__allocate_bytes (param i32) (result i32)
 		(local $next i32)
 		(local $current i32)
+		(local $aligned_size i32)
+
+		(set_local $current (call $__find_freed_block (local.get 0)))
+		(if (get_local $current)
+			(then (return (get_local $current)))
+		)
 
 		;; Get the current heap address
 		(set_local $current (i32.load (i32.const 32)))
-		(i32.add (get_local $current) (local.get 0))
-		(set_local $next)
-		;; resize next to fit into 64 byte block
-		(set_local $next (call $__next_block (get_local $next)))
+		;; Make sure there's enough room for the pointer structure
+		(set_local $aligned_size (call $__next_block (i32.add (local.get 0) (i32.const 8))))
 		;; update the current heap address
+		(set_local $next (i32.add (get_local $current) (get_local $aligned_size)))
 		(i32.store (i32.const 32) (get_local $next))
-		(get_local $current)
+		;; set data size - the 8 bytes for metadata
+		(i32.store (get_local $current) (i32.rem_u (get_local $aligned_size) (i32.const 8)))
+		;; mark as used
+		(i32.store
+			(get_local $current)
+			(i32.or (i32.load (get_local $current)) (i32.const 0x8000))
+		)
+		;; Save the start address
+		(i32.store
+			(i32.add (get_local $current) (i32.const 4))
+			(i32.add (get_local $current) (i32.const 8))
+		)
+		;; return the start address
+		(i32.add (get_local $current) (i32.const 8))
 	)
-	(export "__reserve_bytes" (func $__reserve_bytes))
+	(export "__allocate_bytes" (func $__allocate_bytes))
+
+	(func $__free_bytes (param i32)
+		;; metadata pointer
+		(local $md_ptr i32)
+		(local $metadata i32)
+		(local $heap_start i32)
+
+		;; First "userspace" adrress is heapstart + metadata size
+		(set_local $heap_start (i32.add (i32.load (i32.const 28)) (i32.const 8)))
+		;; if the address is not in heap, it cannot be freed so we can just ignore it
+		(if (i32.lt_u (local.get 0) (get_local $heap_start))
+			(then return)
+		)
+
+		(set_local $md_ptr (i32.sub (local.get 0) (i32.const 8)))
+		(set_local $metadata (i32.load (get_local $md_ptr)))
+		;; Remove used flag
+		(set_local $metadata (i32.and (get_local $metadata) (i32.const 0x7fffffff)))
+		;; Store the metadata without the used flag
+		(i32.store (get_local $md_ptr) (get_local $metadata))
+	)
+	(export "__free_bytes" (func $__free_bytes))
 
 	;; target, source, n bytes
 	(func $__mem_n_copy (param i32) (param i32) (param i32)
@@ -219,7 +319,7 @@
 		;; values to first 8 bytes
 		(set_local $str_size (i32.add (get_local $str_size) (i32.const 8)))
 		;; Allocate new string and get the addr pointer to it
-		(set_local $new_string (call $__reserve_bytes (get_local $str_size)))
+		(set_local $new_string (call $__allocate_bytes (get_local $str_size)))
 		;; Get the pointer to the heap allocated string (8 bytes after the data info)
 		(set_local $new_ptr (i32.add (get_local $new_string) (i32.const 8)))
 		;; Save the size info to the string pointer (offset 4)
@@ -263,7 +363,7 @@
 		;; Add sizes together to get total size
 		(set_local $str_size (i32.add (get_local $size1) (get_local $size2)))
 		;; Allocate new string and get the addr pointer to it
-		(set_local $new_ptr (call $__reserve_bytes (get_local $str_size)))
+		(set_local $new_ptr (call $__allocate_bytes (get_local $str_size)))
 
 		;; Copy the first string into new string
 		(call $__mem_n_copy (get_local $new_ptr) (i32.wrap_i64 (local.get 0)) (get_local $size1))
