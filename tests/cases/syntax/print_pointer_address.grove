@@ -1,0 +1,28 @@
+// Output:
+// 1048648
+// 1048712
+// 1048648
+// 1048712
+
+/* Note that the address are going to change when the allocator addresses change.
+   When fixing this test, just make sure that the addresses after freeing are same */
+
+function main() -> none
+{
+	Int32* val = __allocate_bytes(4)
+	__print_int(val)
+	__print_char('\n')
+	Int64* val2 = __allocate_bytes(8)
+	__print_int(val2)
+	__print_char('\n')
+
+	__free_bytes(val)
+	Int64* val3 = __allocate_bytes(8)
+	__print_int(val3)
+	__print_char('\n')
+
+	__free_bytes(val2)
+	Int64* val4 = __allocate_bytes(8)
+	__print_int(val4)
+	__print_char('\n')
+}
