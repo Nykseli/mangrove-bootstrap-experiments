@@ -47,6 +47,12 @@ struct CompiledArray {
 }
 
 #[derive(Debug, Clone)]
+struct CompiledPointer {
+	/// What type of element the Pointer has
+	element_type: Box<CompiledType>,
+}
+
+#[derive(Debug, Clone)]
 struct CompiledClassMember {
 	ident: String,
 	type_: CompiledType,
@@ -113,6 +119,7 @@ impl CompiledEnum {
 enum CompiledType {
 	Array(CompiledArray),
 	Class(CompiledClass),
+	Pointer(CompiledPointer),
 	Enum(CompiledEnum),
 	Internal(InternalType),
 }
@@ -125,6 +132,7 @@ impl CompiledType {
 			CompiledType::Internal(intr) => intr.size(),
 			// enums are i32 so 4 bytes
 			CompiledType::Enum(_) => 4,
+			CompiledType::Pointer(_) => 4,
 		}
 	}
 
@@ -134,6 +142,7 @@ impl CompiledType {
 			CompiledType::Array(_) | CompiledType::Class(_) => true,
 			// enum is i32 so i32b
 			CompiledType::Enum(_) => true,
+			CompiledType::Pointer(_) => true,
 			CompiledType::Internal(intr) => intr.is32b(),
 		}
 	}
@@ -145,6 +154,8 @@ impl CompiledType {
 			CompiledType::Internal(_) => None,
 			// enums are integers so no need to copy anything
 			CompiledType::Enum(_) => None,
+			// Pointers are just integers so no need to copy anything
+			CompiledType::Pointer(_) => None,
 		}
 	}
 }
@@ -269,6 +280,12 @@ impl CompileCtx {
 					element_type: Box::new(type_),
 				})
 			}
+			ASTType::Pointer(ptr) => {
+				let type_ = self.ast_type_into_compiled(&ptr.type_);
+				CompiledType::Pointer(CompiledPointer {
+					element_type: Box::new(type_),
+				})
+			}
 			ASTType::Enum(enum_) => CompiledType::Enum(CompiledEnum::new(enum_)),
 		}
 	}
@@ -361,6 +378,7 @@ impl CompileCtx {
 				}
 			}
 			CompiledType::Enum(_) => todo!("Implement enum values"),
+			CompiledType::Pointer(_) => todo!(),
 		}
 	}
 }
@@ -504,6 +522,7 @@ impl ASTArrayAccess {
 				false => format!("(i64.load {expr})\n"),
 			},
 			CompiledType::Enum(_) => format!("(i32.load {expr})\n"),
+			CompiledType::Pointer(_) => todo!("Implement pointer array access"),
 		};
 
 		InitExpression {
@@ -553,6 +572,7 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 				let function = match fn_type {
 					ASTType::Int64 => "i64.add",
 					ASTType::Int32(_) => "i32.add",
+					ASTType::Pointer(_) => "i32.add",
 					ASTType::String(_) => "call $__string_concat2",
 					ASTType::Class(_) => unreachable!("Cannot add two custom types"),
 					ASTType::Array(_) => unreachable!("Cannot add two array types"),
@@ -761,6 +781,20 @@ fn compile_variable_assignment(
 		CompiledType::Enum(_) => {
 			let expr = expr.compile(ctx, &target.type_, 0);
 			assert!(expr.len() == 1, "Enum assign expr len needs to be 1");
+			let expr = &expr[0].expr;
+			format!("(set_local ${} {expr})\n", target.ident)
+		}
+		CompiledType::Pointer(_) => {
+			match expr {
+				ASTAssignmentExpr::FunctionCall(func) => {
+					if func.name != "__allocate_bytes" {
+						panic!("can only init ptr with __allocate_bytes")
+					}
+				}
+				_ => panic!("Can only initialise a pointer with function call or nullptr"),
+			}
+			let expr = expr.compile(ctx, &target.type_, 0);
+			assert!(expr.len() == 1, "ptr assign expr len needs to be 1");
 			let expr = &expr[0].expr;
 			format!("(set_local ${} {expr})\n", target.ident)
 		}
