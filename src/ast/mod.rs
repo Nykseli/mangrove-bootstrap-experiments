@@ -28,12 +28,20 @@ pub struct ASTArrayType {
 }
 
 #[derive(Debug, Clone)]
+pub struct ASTPointerType {
+	// Needs to be boxed value
+	// TODO: use Rc instead of Box for cheaper clones in the future
+	pub type_: Box<ASTType>,
+}
+
+#[derive(Debug, Clone)]
 pub enum ASTType {
 	Int64,
 	Int32(ASTInt32Type),
 	Array(ASTArrayType),
 	String(ASTStringType),
 	Class(ASTClass),
+	Pointer(ASTPointerType),
 	Enum(ASTEnum),
 }
 
@@ -46,6 +54,7 @@ impl ASTType {
 			ASTType::String(_) => "String".into(),
 			ASTType::Class(class) => class.name.clone(),
 			ASTType::Enum(e) => e.name.clone(),
+			ASTType::Pointer(ptr) => format!("{}Ptr", ptr.type_.name()),
 		}
 	}
 
