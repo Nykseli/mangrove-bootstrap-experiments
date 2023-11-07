@@ -3,7 +3,7 @@ use crate::ast::{
 	ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement, ASTClass,
 	ASTClassInit, ASTClassInitArg, ASTClassMember, ASTEnum, ASTEnumValue, ASTFunction,
 	ASTFunctionCall, ASTFunctionCallArg, ASTIdent, ASTIfStmt, ASTInt32Type, ASTLtStmt, ASTMinus,
-	ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
+	ASTPointerType, ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
 };
 
 use super::tokeniser::Tokeniser;
@@ -394,7 +394,7 @@ impl Parser {
 			panic!("Expected identifier {ident:#?}");
 		}
 
-		let ast_type = self.parse_ast_type(&ident);
+		let ast_type = self.parse_ast_type(&ident, None);
 
 		let mut next = self.skip_white().unwrap();
 		let int_lit: i32 = if next.type_() == TokenType::Comma {
@@ -419,8 +419,8 @@ impl Parser {
 		}
 	}
 
-	fn parse_ast_type(&mut self, type_token: &Token) -> ASTType {
-		if type_token.value() == "String" {
+	fn parse_ast_type(&mut self, type_token: &Token, next: Option<&Token>) -> ASTType {
+		let type_ = if type_token.value() == "String" {
 			ASTType::String(ASTStringType::default())
 		} else if type_token.value() == "Int64" {
 			ASTType::Int64
@@ -434,6 +434,21 @@ impl Parser {
 			ASTType::Enum(custom)
 		} else {
 			panic!("Type '{}' not found", type_token.value())
+		};
+
+		let pre_peeked = self.skip_white_peek().unwrap();
+		let peek = if let Some(peek) = next {
+			peek
+		} else {
+			&pre_peeked
+		};
+
+		if peek.type_() == TokenType::MulOp && peek.value() == "*" {
+			ASTType::Pointer(ASTPointerType {
+				type_: Box::new(type_),
+			})
+		} else {
+			type_
 		}
 	}
 
@@ -443,10 +458,10 @@ impl Parser {
 		type_token: Token,
 		next: Token,
 	) -> ASTAssignment {
-		let mut ast_type = self.parse_ast_type(&type_token);
+		let mut ast_type = self.parse_ast_type(&type_token, Some(&next));
 
-		let ident = if next.type_() == TokenType::RelOp {
-			// Assignment type was templated, so the next value is the ident
+		let ident = if next.type_() == TokenType::RelOp || next.type_() == TokenType::MulOp {
+			// Assignment type was templated, or a ptr type so the next value is the ident
 			ASTIdent::Ident(self.skip_white().unwrap().value().into())
 		} else {
 			ASTIdent::Ident(next.value().into())
@@ -529,7 +544,10 @@ impl Parser {
 		if next.type_() == TokenType::LeftParen {
 			let fn_call = self.parse_function_call(None, statement.value(), false);
 			ASTBlockStatement::FunctionCall(fn_call)
-		} else if next.type_() == TokenType::Ident || next.type_() == TokenType::RelOp {
+		} else if next.type_() == TokenType::Ident
+			|| next.type_() == TokenType::RelOp
+			|| (next.type_() == TokenType::MulOp && next.value() == "*")
+		{
 			// Ident after type
 			let assign = self.parse_assignment(ctx, statement, next);
 			ctx.variables.push(assign.variable.clone());
@@ -606,6 +624,7 @@ impl Parser {
 						.clone(),
 					ASTType::Array(_) => todo!(),
 					ASTType::Enum(_) => todo!(),
+					ASTType::Pointer(_) => todo!(),
 				};
 
 				let dotted =
@@ -689,7 +708,7 @@ impl Parser {
 				panic!("Expected identifier {ident:#?}");
 			}
 
-			let ast_type = self.parse_ast_type(&ident);
+			let ast_type = self.parse_ast_type(&ident, None);
 
 			ident = self.skip_white().unwrap();
 			if ident.type_() != TokenType::Ident {
@@ -721,7 +740,7 @@ impl Parser {
 		let returns = match return_type.type_() {
 			TokenType::NoneType => None,
 			// Just assuming that it's Int32
-			TokenType::Ident => Some(self.parse_ast_type(&return_type)),
+			TokenType::Ident => Some(self.parse_ast_type(&return_type, None)),
 			_ => panic!("Didn't expect {return_type:#?}"),
 		};
 
@@ -786,7 +805,7 @@ impl Parser {
 			}
 
 			// TODO: self reference in types
-			let type_ = self.parse_ast_type(&ident);
+			let type_ = self.parse_ast_type(&ident, None);
 
 			ident = self.skip_white().unwrap();
 			if ident.type_() != TokenType::Ident {
