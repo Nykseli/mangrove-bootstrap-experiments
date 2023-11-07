@@ -164,6 +164,7 @@
 
 	;; Find a freed block of memory that fit's the required size.
 	;; Returns zero if no address is found.
+	;; If address is found, it's marked as used
 	(func $__find_freed_block (param i32) (result i32)
 		(local $size i32)
 		(local $current i32)
@@ -173,7 +174,7 @@
 		(loop $finder
 			(set_local $size (i32.load (get_local $current)))
 			;; Check if it's free
-			(if (i32.xor (get_local $size) (i32.const 0x80000000))
+			(if (i32.eq (i32.shr_u (get_local $size) (i32.const 31)) (i32.const 0))
 				(then
 					;; If the size is 0, this block is never used.
 					;; It means that all the blocks are used or two small and
@@ -183,18 +184,26 @@
 					)
 					;; If the size is less than or equal to the block's size
 					;; return the starting address
-					(if (i32.le_s (get_local $size) (local.get 0))
-						(then (return
-							(i32.add (get_local $current) (i32.const 8))
-						))
+					(if (i32.le_u (local.get 0) (get_local $size))
+						(then
+							;; Mark data as used
+							(i32.store
+								(get_local $current)
+								(i32.or (get_local $size) (i32.const 0x80000000))
+							)
+							;; Return the data start address
+							(return (i32.add (get_local $current) (i32.const 8)))
+						)
 					)
 				)
 			)
 
 			;; get the size without the used bit
-			(set_local $size (i32.and (get_local $current) (i32.const 0x7fffffff)))
+			(set_local $size (i32.and (i32.load(get_local $current)) (i32.const 0x7fffffff)))
 			;; Add the size + the 8 bytes for the metadata
-			(set_local $current (i32.add (get_local $size) (i32.const 8)))
+			(set_local $size (i32.add (get_local $size) (i32.const 8)))
+			(set_local $current (i32.add (get_local $current) (get_local $size)))
+			br $finder
 		)
 		(i32.const 0)
 	)
@@ -241,11 +250,11 @@
 		(set_local $next (i32.add (get_local $current) (get_local $aligned_size)))
 		(i32.store (i32.const 32) (get_local $next))
 		;; set data size - the 8 bytes for metadata
-		(i32.store (get_local $current) (i32.rem_u (get_local $aligned_size) (i32.const 8)))
+		(i32.store (get_local $current) (i32.sub (get_local $aligned_size) (i32.const 8)))
 		;; mark as used
 		(i32.store
 			(get_local $current)
-			(i32.or (i32.load (get_local $current)) (i32.const 0x8000))
+			(i32.or (i32.load (get_local $current)) (i32.const 0x80000000))
 		)
 		;; Save the start address
 		(i32.store
