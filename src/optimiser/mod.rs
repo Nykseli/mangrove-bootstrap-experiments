@@ -23,6 +23,7 @@ impl ASTAssignArg {
 				}
 			}
 			ASTAssignArg::DottedIdent(_) => return None,
+			ASTAssignArg::Deref(_) => return None,
 		};
 		Some(val)
 	}
@@ -69,6 +70,7 @@ impl ASTAssignmentExpr {
 		match self {
 			// mark noops with ()
 			ASTAssignmentExpr::Arg(_) => (),
+			// ASTAssignmentExpr::DerefArg(_) => (),
 			ASTAssignmentExpr::Add(_) => (),
 			ASTAssignmentExpr::Minus(_) => (),
 			ASTAssignmentExpr::FunctionCall(fn_call) => {
@@ -256,6 +258,10 @@ fn optimise_function(ctx: &mut OptimiserCtx, function: &mut ASTFunction) -> ASTF
 				continue;
 			}
 			ASTBlockStatement::IfStmt(_) => {
+				statements.push(statment.clone());
+				continue;
+			}
+			ASTBlockStatement::DerefAssignment(_) => {
 				statements.push(statment.clone());
 				continue;
 			}
