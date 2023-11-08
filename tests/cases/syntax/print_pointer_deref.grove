@@ -1,0 +1,18 @@
+// Output:
+// 1337
+// 7331
+
+function main() -> none
+{
+	Int32* val32 = __allocate_bytes(4)
+	*val32 = 1337
+	Int32 dval32 = *val32
+	__print_int(dval32)
+	__print_char('\n')
+
+	Int64* val64 = __allocate_bytes(8)
+	*val64 = 7331
+	Int64 dval64 = *val64
+	__print_int64(dval64)
+	__print_char('\n')
+}
