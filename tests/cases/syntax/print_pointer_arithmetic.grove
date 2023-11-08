@@ -1,0 +1,49 @@
+// Output:
+// 1337
+// 7331
+// 1337
+// 7331
+
+function int32_ptr() -> none
+{
+	Int32 size = __sizeof(Int32)
+	Int32* valptr = __allocate_bytes(8)
+	*valptr = 1337
+	valptr = valptr + size
+	*valptr = 7331
+	valptr = valptr - size
+
+	Int32 dval = *valptr
+	__print_int(dval)
+	__print_char('\n')
+	valptr = valptr + 4
+	dval = *valptr
+	__print_int(dval)
+	__print_char('\n')
+	__free_bytes(valptr)
+}
+
+function int64_ptr() -> none
+{
+	Int32 size = __sizeof(Int64)
+	Int64* valptr = __allocate_bytes(16)
+	*valptr = 1337
+	valptr = valptr + size
+	*valptr = 7331
+	valptr = valptr - size
+
+	Int64 dval = *valptr
+	__print_int64(dval)
+	__print_char('\n')
+	valptr = valptr + 8
+	dval = *valptr
+	__print_int64(dval)
+	__print_char('\n')
+	__free_bytes(valptr)
+}
+
+function main() -> none
+{
+	int32_ptr()
+	int64_ptr()
+}
