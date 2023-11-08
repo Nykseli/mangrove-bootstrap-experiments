@@ -158,7 +158,7 @@ impl Parser {
 
 		match value.type_() {
 			TokenType::IntLit => match target_type {
-				ASTType::Int32(_) => {
+				ASTType::Int32(_) | ASTType::Pointer(_) => {
 					let value = StaticValue::Int32(value.value().parse::<i32>().unwrap());
 					ASTAssignArg::Static(ASTStaticAssign {
 						value,
@@ -246,15 +246,27 @@ impl Parser {
 						if !array.type_.has_same_type(target_type) {
 							panic!("Different types: {target_type:#?} {:#?}", array.type_)
 						}
-					} else if is_deref {
-						let deref_type = if let ASTType::Pointer(ptr) = &var.ast_type {
-							&ptr.type_
+					} else if let ASTType::Pointer(ptr) = &var.ast_type {
+						if is_deref {
+							if !ptr.type_.has_same_type(target_type) {
+								panic!("Different types: {target_type:#?} {:#?}", ptr.type_)
+							}
 						} else {
-							panic!("No variable {} is not a pointer type", value.value());
-						};
-
-						if !deref_type.has_same_type(target_type) {
-							panic!("Different types: {target_type:#?} {:#?}", deref_type)
+							match target_type {
+								ASTType::Int32(_) => (),
+								_ => panic!("Varialbe type needs to be Int32"),
+							}
+						}
+					} else if let ASTType::Pointer(ptr) = &target_type {
+						if is_deref {
+							if !ptr.type_.has_same_type(&var.ast_type) {
+								panic!("Different types: {:#?} {:#?}", var.ast_type, ptr.type_)
+							}
+						} else {
+							match var.ast_type {
+								ASTType::Int32(_) => (),
+								_ => panic!("Varialbe type needs to be Int32"),
+							}
 						}
 					} else if !var.ast_type.has_same_type(target_type) {
 						panic!("Different types: {target_type:#?} {:#?}", var.ast_type)
