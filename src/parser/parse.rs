@@ -170,7 +170,7 @@ impl Parser {
 						value_type: ASTType::Int64,
 					})
 				}
-				_ => panic!("Expected int Token"),
+				_ => panic!("Expected int Token {target_type:#?}"),
 			},
 			TokenType::StringLit => {
 				if let ASTType::String(_) = target_type {
@@ -185,7 +185,13 @@ impl Parser {
 					value_type: ASTType::String(ASTStringType::default()),
 				})
 			}
-			TokenType::Ident => {
+			TokenType::MulOp | TokenType::Ident => {
+				let (is_deref, value) = if value.type_() == TokenType::MulOp {
+					(true, self.skip_white().unwrap())
+				} else {
+					(false, value)
+				};
+
 				let peek_next = self.skip_white_peek().unwrap();
 				if peek_next.type_() == TokenType::Dot {
 					let ident: String = value.value().into();
@@ -221,10 +227,14 @@ impl Parser {
 						panic!("Variable {} not found!", value.value());
 					};
 
-					return ASTAssignArg::DottedIdent(ASTAssignDottedIdent {
-						ident: (ident, dotted.value().into()),
-						ident_type: target_type.clone(),
-					});
+					if is_deref {
+						unimplemented!("Dotted ident deref is not implemented")
+					} else {
+						return ASTAssignArg::DottedIdent(ASTAssignDottedIdent {
+							ident: (ident, dotted.value().into()),
+							ident_type: target_type.clone(),
+						});
+					}
 				}
 
 				if let Some(var) = ctx.variables.iter().find(|v| v.ident == value.value()) {
@@ -234,6 +244,16 @@ impl Parser {
 						if !array.type_.has_same_type(target_type) {
 							panic!("Different types: {target_type:#?} {:#?}", array.type_)
 						}
+					} else if is_deref {
+						let deref_type = if let ASTType::Pointer(ptr) = &var.ast_type {
+							&ptr.type_
+						} else {
+							panic!("No variable {} is not a pointer type", value.value());
+						};
+
+						if !deref_type.has_same_type(target_type) {
+							panic!("Different types: {target_type:#?} {:#?}", deref_type)
+						}
 					} else if !var.ast_type.has_same_type(target_type) {
 						panic!("Different types: {target_type:#?} {:#?}", var.ast_type)
 					}
@@ -241,11 +261,19 @@ impl Parser {
 					// Panic for everything else execpt functions
 					panic!("Variable {} not found! {:#?}", value.value(), ctx)
 				};
-				// TODO: properly create the type info
-				ASTAssignArg::Ident(ASTAssignIdent {
-					ident: value.value().into(),
-					ident_type: target_type.clone(),
-				})
+
+				if is_deref {
+					ASTAssignArg::Deref(ASTAssignIdent {
+						ident: value.value().into(),
+						ident_type: target_type.clone(),
+					})
+				} else {
+					// TODO: properly create the type info
+					ASTAssignArg::Ident(ASTAssignIdent {
+						ident: value.value().into(),
+						ident_type: target_type.clone(),
+					})
+				}
 			}
 			_ => unimplemented!("{value:#?}"),
 		}
@@ -359,6 +387,7 @@ impl Parser {
 				self.skip_white().unwrap();
 				let ident = match value {
 					ASTAssignArg::Static(_) => panic!("Expected ident"),
+					ASTAssignArg::Deref(_) => panic!("Expected ident"),
 					ASTAssignArg::Ident(ident) => ASTIdent::Ident(ident.ident),
 					ASTAssignArg::DottedIdent(ident) => {
 						ASTIdent::DottedIdent((ident.ident.0.clone(), ident.ident.1))
@@ -541,6 +570,34 @@ impl Parser {
 
 	fn parse_ident_statement(&mut self, ctx: &mut BlockCtx, statement: Token) -> ASTBlockStatement {
 		let next = self.skip_white().unwrap();
+		if statement.type_() == TokenType::MulOp && statement.value() == "*" {
+			if next.type_() != TokenType::Ident {
+				panic!("Expected identifier after deref");
+			}
+
+			let var = ctx.find_variable(next.value());
+			let var = if let Some(var) = var {
+				var
+			} else {
+				panic!("No variable {} found", next.value());
+			};
+
+			let deref_type = if let ASTType::Pointer(ptr) = &var.ast_type {
+				&ptr.type_
+			} else {
+				panic!("No variable {} is not a pointer type", next.value());
+			};
+
+			let eq = self.skip_white().unwrap();
+			if eq.type_() != TokenType::AssignOp {
+				panic!("Expected assignment")
+			}
+
+			let ident = var.ident.clone();
+			let assign = self.parse_reassignment(ctx, deref_type.deref().clone(), ident);
+			return ASTBlockStatement::DerefAssignment(assign);
+		}
+
 		if next.type_() == TokenType::LeftParen {
 			let fn_call = self.parse_function_call(None, statement.value(), false);
 			ASTBlockStatement::FunctionCall(fn_call)
@@ -661,7 +718,9 @@ impl Parser {
 				break;
 			}
 
-			if statement.type_() == TokenType::Ident {
+			if statement.type_() == TokenType::Ident
+				|| (statement.type_() == TokenType::MulOp && statement.value() == "*")
+			{
 				statements.push(self.parse_ident_statement(&mut ctx, statement))
 			} else if statement.type_() == TokenType::ReturnStmt {
 				let return_stmt = self.parse_return_statement(&ctx, return_type);
