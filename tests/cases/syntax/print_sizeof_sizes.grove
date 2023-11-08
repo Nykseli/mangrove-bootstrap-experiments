@@ -1,0 +1,41 @@
+// Output:
+// 4
+// 8
+// 8
+// 12
+// 16
+
+
+class Foo1
+{
+	Int32 foo
+	Int32 foo2
+	Int32 foo3
+}
+
+class Foo2
+{
+	Int32 foo
+	Int64 foo2
+	Int32 foo3
+}
+
+
+function main() -> none
+{
+	Int32 size = __sizeof(Int32)
+	__print_int(size)
+	__print_char('\n')
+	size = __sizeof(Int64)
+	__print_int(size)
+	__print_char('\n')
+	size = __sizeof(String)
+	__print_int(size)
+	__print_char('\n')
+	size = __sizeof(Foo1)
+	__print_int(size)
+	__print_char('\n')
+	size = __sizeof(Foo2)
+	__print_int(size)
+	__print_char('\n')
+}
