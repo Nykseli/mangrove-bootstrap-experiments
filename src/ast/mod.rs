@@ -145,6 +145,7 @@ pub enum ASTAssignArg {
 	Static(ASTStaticAssign),
 	Ident(ASTAssignIdent),
 	DottedIdent(ASTAssignDottedIdent),
+	Deref(ASTAssignIdent),
 }
 
 impl ASTAssignArg {
@@ -211,6 +212,7 @@ pub struct ASTAssignment {
 #[derive(Debug, Clone)]
 pub enum ASTBlockStatement {
 	Assignment(ASTAssignment),
+	DerefAssignment(ASTAssignment),
 	FunctionCall(ASTFunctionCall),
 	Return(ASTReturn),
 	IfStmt(ASTIfStmt),
