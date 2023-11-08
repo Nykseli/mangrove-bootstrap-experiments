@@ -854,6 +854,8 @@ fn compile_variable_assignment(
 					}
 				}
 				ASTAssignmentExpr::Arg(_) => (),
+				ASTAssignmentExpr::Add(_) => (),
+				ASTAssignmentExpr::Minus(_) => (),
 				_ => {
 					panic!("Can only initialise a pointer with function call or nullptr {expr:#?}")
 				}
