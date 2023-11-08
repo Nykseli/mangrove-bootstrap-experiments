@@ -448,6 +448,15 @@ impl ASTAssignArg {
 			ASTAssignArg::DottedIdent(ident) => {
 				ctx.load_dotted_ident((&ident.ident.0, &ident.ident.1), offset)
 			}
+			ASTAssignArg::Deref(deref) => {
+				// TODO: handle classes and arrays
+				let type_ = ctx.ast_type_into_compiled(&deref.ident_type);
+				if type_.is32b() {
+					InitExpression::new(offset, format!("(i32.load (get_local ${}))", deref.ident))
+				} else {
+					InitExpression::new(offset, format!("(i64.load (get_local ${}))", deref.ident))
+				}
+			}
 		}
 	}
 }
@@ -567,6 +576,7 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 					ASTAssignArg::Static(val) => &val.value_type,
 					ASTAssignArg::Ident(val) => &val.ident_type,
 					ASTAssignArg::DottedIdent(val) => &val.ident_type,
+					ASTAssignArg::Deref(_) => todo!(),
 				};
 
 				let function = match fn_type {
@@ -596,6 +606,7 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 					ASTAssignArg::Static(val) => &val.value_type,
 					ASTAssignArg::Ident(val) => &val.ident_type,
 					ASTAssignArg::DottedIdent(val) => &val.ident_type,
+					ASTAssignArg::Deref(_) => todo!(),
 				};
 				let ctype = ctx.ast_type_into_compiled(fn_type);
 				let lhs = minus.lhs.compile(ctx, &ctype, offset).expr;
@@ -662,6 +673,7 @@ fn compile_variable_assignment(
 	ctx: &mut CompileCtx,
 	target: &CompiledVariable,
 	expr: &ASTAssignmentExpr,
+	is_deref: bool,
 ) -> String {
 	match &target.type_ {
 		CompiledType::Array(array) => {
@@ -784,19 +796,32 @@ fn compile_variable_assignment(
 			let expr = &expr[0].expr;
 			format!("(set_local ${} {expr})\n", target.ident)
 		}
-		CompiledType::Pointer(_) => {
+		CompiledType::Pointer(ptr) => {
 			match expr {
 				ASTAssignmentExpr::FunctionCall(func) => {
 					if func.name != "__allocate_bytes" {
 						panic!("can only init ptr with __allocate_bytes")
 					}
 				}
-				_ => panic!("Can only initialise a pointer with function call or nullptr"),
+				ASTAssignmentExpr::Arg(_) => (),
+				_ => {
+					panic!("Can only initialise a pointer with function call or nullptr {expr:#?}")
+				}
 			}
 			let expr = expr.compile(ctx, &target.type_, 0);
 			assert!(expr.len() == 1, "ptr assign expr len needs to be 1");
 			let expr = &expr[0].expr;
-			format!("(set_local ${} {expr})\n", target.ident)
+			if is_deref {
+				let size = if ptr.element_type.is32b() {
+					"i32"
+				} else {
+					"i64"
+				};
+
+				format!("({size}.store (get_local ${}) {expr})\n", target.ident)
+			} else {
+				format!("(set_local ${} {expr})\n", target.ident)
+			}
 		}
 	}
 }
@@ -943,7 +968,9 @@ fn compile_function(
 
 	for statment in &function.body.statements {
 		match statment {
-			ASTBlockStatement::Assignment(assign) => {
+			ASTBlockStatement::DerefAssignment(assign) | ASTBlockStatement::Assignment(assign) => {
+				let is_deref = matches!(statment, ASTBlockStatement::DerefAssignment(_));
+
 				if let ASTIdent::DottedIdent((ident, dotted)) = &assign.variable.ident {
 					let var = ctx.find_variable(ident).clone();
 					let class = if let CompiledType::Class(class) = &var.type_ {
@@ -959,7 +986,7 @@ fn compile_function(
 					} else {
 						format!("(i64.store (i32.add (get_local ${ident}) (i32.const {offset}))")
 					};
-					let expr = compile_variable_assignment(ctx, &var, &assign.expr);
+					let expr = compile_variable_assignment(ctx, &var, &assign.expr, is_deref);
 					body.push_str(&format!("{store} {expr})"));
 					continue;
 				}
@@ -969,7 +996,12 @@ fn compile_function(
 					.unwrap_or_else(|_| panic!("{:#?}", assign.variable));
 				// TODO: remove the clone here
 				let var = ctx.find_variable(&ident).clone();
-				body.push_str(&compile_variable_assignment(ctx, &var, &assign.expr));
+				body.push_str(&compile_variable_assignment(
+					ctx,
+					&var,
+					&assign.expr,
+					is_deref,
+				));
 				if !assign.reassignment {
 					variables.push_str(&format!("(local ${} {})\n", var.ident, var.local_type()));
 				}
