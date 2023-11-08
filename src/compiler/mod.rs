@@ -35,6 +35,20 @@ impl InternalType {
 	}
 }
 
+impl From<&str> for InternalType {
+	fn from(value: &str) -> Self {
+		if value == "String" {
+			InternalType::String
+		} else if value == "Int32" {
+			InternalType::Int32
+		} else if value == "Int64" {
+			InternalType::Int64
+		} else {
+			panic!("{}", format!("No internal type '{value}'"))
+		}
+	}
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct CompiledArray {
@@ -248,6 +262,22 @@ impl CompileCtx {
 
 	fn check_enum<'a>(&'a self, name: &str) -> Option<&'a CompiledEnum> {
 		self.enums.iter().find(|e| e.name == name)
+	}
+
+	fn find_compiled_type(&self, name: &str) -> CompiledType {
+		// TODO: Arrays
+		let class = self.classes.iter().find(|c| c.name == name);
+		if let Some(cls) = class {
+			return CompiledType::Class(cls.clone());
+		}
+
+		let enum_ = self.check_enum(name);
+		if let Some(enum_) = enum_ {
+			return CompiledType::Enum(enum_.clone());
+		}
+
+		let intr: InternalType = name.into();
+		CompiledType::Internal(intr)
 	}
 
 	fn var_stack_offset(&self, var: &CompiledVariable) -> i32 {
@@ -620,6 +650,26 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 				}]
 			}
 			ASTAssignmentExpr::FunctionCall(func) => {
+				if func.name == "__sizeof" {
+					if func.args.len() != 1 {
+						panic!("__sizeof takes exactly 1 argument");
+					}
+
+					let arg_name = if let ASTFunctionCallArg::Ident(arg) = &func.args[0] {
+						arg
+					} else {
+						panic!("__sizeof only accepts identifiers as an argument");
+					};
+
+					let type_ = ctx.find_compiled_type(arg_name);
+					let expr = format!("(i32.const {})\n", type_.size());
+					return vec![InitExpression {
+						expr,
+						offset,
+						is32b: false,
+					}];
+				}
+
 				let mut arg_str = String::new();
 				for arg in &func.args {
 					arg_str.push_str(&arg.compile(ctx));
