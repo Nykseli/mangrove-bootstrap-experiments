@@ -210,8 +210,13 @@ impl Parser {
 							let member = class
 								.member(dotted.value())
 								.unwrap_or_else(|| panic!("{} member not found", dotted.value()));
-							if !member.type_.has_same_type(target_type) {
-								panic!("Different types: {target_type:#?} {:#?}", member.type_)
+							let mem_type = if let ASTType::Template(_) = &member.type_ {
+								class.tmpl_type.as_deref().unwrap()
+							} else {
+								&member.type_
+							};
+							if !mem_type.has_same_type(target_type) {
+								panic!("Different types: {target_type:#?} {:#?}", mem_type)
 							}
 						} else {
 							panic!("Only custom type dotted args implemented");
