@@ -1,0 +1,22 @@
+// Output:
+// 131
+// 123456
+// Hello world
+
+class Foo<T>
+{
+	T foo
+}
+
+function main() -> none
+{
+	Foo<Int32> bar = { foo: 131 }
+	Foo<Int64> bar64 = { foo: 123456 }
+	Foo<String> zar = { foo: "Hello world\n" }
+
+	__print_int(bar.foo)
+	__print_char('\n')
+	__print_int64(bar64.foo)
+	__print_char('\n')
+	__print_str(zar.foo)
+}
