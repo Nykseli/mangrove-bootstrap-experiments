@@ -316,7 +316,16 @@ impl Parser {
 				panic!("Expected colon");
 			}
 
-			let arg = self.parse_assign_expr(ctx, &member.type_);
+			let member_type = if let ASTType::Template(_) = &member.type_ {
+				class
+					.tmpl_type
+					.as_ref()
+					.expect("Class template not defined")
+			} else {
+				&member.type_
+			};
+
+			let arg = self.parse_assign_expr(ctx, member_type);
 			inits.push(ASTClassInitArg { arg, ident });
 
 			token = self.skip_white().unwrap();
@@ -462,6 +471,17 @@ impl Parser {
 		}
 	}
 
+	fn parse_class_template_type(&mut self) -> Option<ASTType> {
+		let ident = self.skip_white().unwrap();
+		let ast_type = self.parse_ast_type(&ident, None);
+		let next = self.skip_white().unwrap();
+		if next.type_() != TokenType::RelOp || next.value() != ">" {
+			panic!("Expected '>' {next:#?}");
+		}
+
+		Some(ast_type)
+	}
+
 	fn parse_ast_type(&mut self, type_token: &Token, next: Option<&Token>) -> ASTType {
 		let type_ = if type_token.value() == "String" {
 			ASTType::String(ASTStringType::default())
@@ -471,7 +491,15 @@ impl Parser {
 			ASTType::Int32(ASTInt32Type {})
 		} else if type_token.value() == "Array" {
 			ASTType::Array(self.parse_array_type())
-		} else if let Some(custom) = self.class_type(type_token.value()) {
+		} else if let Some(mut custom) = self.class_type(type_token.value()) {
+			if let Some(next) = next {
+				if next.type_() == TokenType::RelOp {
+					if let Some(type_) = self.parse_class_template_type() {
+						custom.tmpl_type = Some(Box::new(type_))
+					}
+				}
+			}
+
 			ASTType::Class(custom)
 		} else if let Some(custom) = self.enum_type(type_token.value()) {
 			ASTType::Enum(custom)
@@ -696,6 +724,7 @@ impl Parser {
 					ASTType::Array(_) => todo!(),
 					ASTType::Enum(_) => todo!(),
 					ASTType::Pointer(_) => todo!(),
+					ASTType::Template(_) => todo!(),
 				};
 
 				let dotted =
@@ -830,9 +859,25 @@ impl Parser {
 			panic!("Expected identifier after 'class'")
 		};
 
+		let rel = self.skip_white_peek().unwrap();
+		let template = if rel.type_() == TokenType::RelOp && rel.value() == "<" {
+			// skip '<'
+			self.skip_white().unwrap();
+			/* let mut templates = Vec::new(); */
+			let templ = self.skip_white().unwrap();
+			let next = self.skip_white().unwrap();
+			if next.type_() != TokenType::RelOp || next.value() != ">" {
+				panic!("Expected '>' {next:#?}");
+			}
+
+			Some(String::from(templ.value()))
+		} else {
+			None
+		};
+
 		let left_brace = self.skip_white().unwrap();
 		if left_brace.type_() != TokenType::LeftBrace {
-			panic!("Expected left brace");
+			panic!("Expected left brace {left_brace:#?}");
 		}
 
 		let mut members: Vec<ASTClassMember> = Vec::new();
@@ -857,6 +902,8 @@ impl Parser {
 					let class = ASTType::Class(ASTClass {
 						members: members.clone(),
 						name: name.clone(),
+						template: template.clone(),
+						tmpl_type: None,
 						methods: Vec::new(),
 					});
 
@@ -878,7 +925,12 @@ impl Parser {
 			}
 
 			// TODO: self reference in types
-			let type_ = self.parse_ast_type(&ident, None);
+			let type_ = match &template {
+				// If there's a template and it matches the template name
+				Some(val) if val == ident.value() => ASTType::Template(ident.value().into()),
+				// Otherwise parse the type normally
+				_ => self.parse_ast_type(&ident, None),
+			};
 
 			ident = self.skip_white().unwrap();
 			if ident.type_() != TokenType::Ident {
@@ -897,6 +949,8 @@ impl Parser {
 			name,
 			members,
 			methods,
+			template,
+			tmpl_type: None,
 		}
 	}
 
