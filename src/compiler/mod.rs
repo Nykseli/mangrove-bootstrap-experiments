@@ -432,7 +432,13 @@ impl CompileCtx {
 				let member = class.member(dotted);
 				// dotted ident offset are always the member offset
 				let offset = /* offset +  */member.offset;
-				if member.type_.is32b() {
+				if let CompiledType::Class(_) = &member.type_ {
+					// Just load the offset to the member
+					InitExpression::new(
+						offset,
+						format!("(i32.add (get_local ${ident}) (i32.const {offset}))"),
+					)
+				} else if member.type_.is32b() {
 					InitExpression::new(
 						offset,
 						format!("(i32.load (i32.add (get_local ${ident}) (i32.const {offset})))"),
@@ -764,6 +770,7 @@ fn compile_variable_assignment(
 	target: &CompiledVariable,
 	expr: &ASTAssignmentExpr,
 	is_deref: bool,
+	is_target_dotted: bool,
 ) -> String {
 	match &target.type_ {
 		CompiledType::Array(array) => {
@@ -835,6 +842,10 @@ fn compile_variable_assignment(
 				let expr = access.compile(ctx, var_arr, 0).expr;
 				return format!("(set_local ${} {expr})", target.ident);
 			} else if let ASTAssignmentExpr::Arg(arg) = expr {
+				if !is_target_dotted {
+					let expr = arg.compile(ctx, &target.type_, 0).expr;
+					return format!("(set_local ${} {expr})\n", target.ident);
+				}
 				return arg.compile(ctx, &target.type_, 0).expr;
 			} else if let ASTAssignmentExpr::FunctionCall(func) = expr {
 				let mut arg_str = String::new();
@@ -1079,7 +1090,7 @@ fn compile_function(
 					} else {
 						format!("(i64.store (i32.add (get_local ${ident}) (i32.const {offset}))")
 					};
-					let expr = compile_variable_assignment(ctx, &var, &assign.expr, is_deref);
+					let expr = compile_variable_assignment(ctx, &var, &assign.expr, is_deref, true);
 					body.push_str(&format!("{store} {expr})"));
 					continue;
 				}
@@ -1094,6 +1105,7 @@ fn compile_function(
 					&var,
 					&assign.expr,
 					is_deref,
+					false,
 				));
 				if !assign.reassignment {
 					variables.push_str(&format!("(local ${} {})\n", var.ident, var.local_type()));
