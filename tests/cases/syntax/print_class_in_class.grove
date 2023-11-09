@@ -1,0 +1,21 @@
+// Output:
+// 123123
+
+class FooVal
+{
+	Int64 val
+}
+
+class Foo
+{
+	FooVal foo
+}
+
+function main() -> none
+{
+	Foo fooval = { foo: { val: 123123 }}
+
+	FooVal val = fooval.foo
+	__print_int64(val.val)
+	__print_char('\n')
+}
