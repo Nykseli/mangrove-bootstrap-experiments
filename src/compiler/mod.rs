@@ -136,6 +136,7 @@ enum CompiledType {
 	Pointer(CompiledPointer),
 	Enum(CompiledEnum),
 	Internal(InternalType),
+	Template(String),
 }
 
 impl CompiledType {
@@ -147,6 +148,7 @@ impl CompiledType {
 			// enums are i32 so 4 bytes
 			CompiledType::Enum(_) => 4,
 			CompiledType::Pointer(_) => 4,
+			CompiledType::Template(_) => unreachable!("Templates don't have a size"),
 		}
 	}
 
@@ -158,6 +160,7 @@ impl CompiledType {
 			CompiledType::Enum(_) => true,
 			CompiledType::Pointer(_) => true,
 			CompiledType::Internal(intr) => intr.is32b(),
+			CompiledType::Template(_) => unreachable!("Templates don't have a size"),
 		}
 	}
 
@@ -170,6 +173,7 @@ impl CompiledType {
 			CompiledType::Enum(_) => None,
 			// Pointers are just integers so no need to copy anything
 			CompiledType::Pointer(_) => None,
+			CompiledType::Template(_) => unreachable!("Templates cannot be copied"),
 		}
 	}
 }
@@ -246,11 +250,18 @@ struct CompileCtx {
 }
 
 impl CompileCtx {
-	fn find_compiled_class<'a>(&'a self, name: &str) -> &'a CompiledClass {
-		self.classes
-			.iter()
-			.find(|c| c.name == name)
-			.unwrap_or_else(|| panic!("Class '{name}' is not defined"))
+	fn find_compiled_class<'a>(
+		&'a self,
+		name: &str,
+		tmpl: Option<&str>,
+	) -> Option<&'a CompiledClass> {
+		let name = if let Some(tmpl) = tmpl {
+			format!("{name}{tmpl}")
+		} else {
+			name.into()
+		};
+
+		self.classes.iter().find(|c| c.name == name)
 	}
 
 	fn find_variable<'a>(&'a self, name: &str) -> &'a CompiledVariable {
@@ -291,13 +302,26 @@ impl CompileCtx {
 		panic!("Compiled variable {var:#?} is not in stack")
 	}
 
-	fn ast_type_into_compiled(&self, ast_type: &ASTType) -> CompiledType {
+	fn ast_type_into_compiled(&mut self, ast_type: &ASTType) -> CompiledType {
 		match ast_type {
 			ASTType::Int64 => CompiledType::Internal(InternalType::Int64),
 			ASTType::Int32(_) => CompiledType::Internal(InternalType::Int32),
 			ASTType::String(_) => CompiledType::Internal(InternalType::String),
 			ASTType::Class(class) => {
-				let class = self.find_compiled_class(&class.name).clone();
+				let tmpl = class.tmpl_type.as_ref().map(|tmpl| tmpl.name());
+
+				if self
+					.find_compiled_class(&class.name, tmpl.as_deref())
+					.is_none() && class.tmpl_type.is_some()
+					&& class.template.is_some()
+				{
+					self.add_ast_class(class)
+				}
+
+				let class = self
+					.find_compiled_class(&class.name, tmpl.as_deref())
+					.unwrap()
+					.clone();
 				CompiledType::Class(class)
 			}
 			ASTType::Array(array) => {
@@ -317,6 +341,7 @@ impl CompileCtx {
 				})
 			}
 			ASTType::Enum(enum_) => CompiledType::Enum(CompiledEnum::new(enum_)),
+			ASTType::Template(t) => CompiledType::Template(t.into()),
 		}
 	}
 
@@ -324,7 +349,13 @@ impl CompileCtx {
 		let mut offset: i32 = 0;
 		let mut members: Vec<CompiledClassMember> = Vec::new();
 		for member in &class.members {
-			let type_ = self.ast_type_into_compiled(&member.type_);
+			let type_ = if let ASTType::Template(_) = &member.type_ {
+				class.tmpl_type.as_ref().unwrap()
+			} else {
+				&member.type_
+			};
+
+			let type_ = self.ast_type_into_compiled(type_);
 			let size = type_.size();
 			members.push(CompiledClassMember {
 				ident: member.ident.clone(),
@@ -334,8 +365,14 @@ impl CompileCtx {
 			offset += size;
 		}
 
+		let name = if let Some(type_) = &class.tmpl_type {
+			format!("{}{}", class.name, type_.name())
+		} else {
+			class.name.clone()
+		};
+
 		self.classes.push(CompiledClass {
-			name: class.name.clone(),
+			name,
 			members,
 			total_size: offset,
 		})
@@ -409,6 +446,7 @@ impl CompileCtx {
 			}
 			CompiledType::Enum(_) => todo!("Implement enum values"),
 			CompiledType::Pointer(_) => todo!(),
+			CompiledType::Template(_) => todo!(),
 		}
 	}
 }
@@ -463,7 +501,7 @@ impl ASTAssignArg {
 					InitExpression::new(offset, format!("(i32.const {val})"))
 				}
 				StaticValue::Int64(val) => {
-					InitExpression::new(offset, format!("(i64.const {val})"))
+					InitExpression::new_64b(offset, format!("(i64.const {val})"))
 				}
 				StaticValue::String(string) => {
 					let sstring = ctx.add_static_string(string);
@@ -562,6 +600,7 @@ impl ASTArrayAccess {
 			},
 			CompiledType::Enum(_) => format!("(i32.load {expr})\n"),
 			CompiledType::Pointer(_) => todo!("Implement pointer array access"),
+			CompiledType::Template(_) => todo!("Implement template array access"),
 		};
 
 		InitExpression {
@@ -617,6 +656,7 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 					ASTType::Class(_) => unreachable!("Cannot add two custom types"),
 					ASTType::Array(_) => unreachable!("Cannot add two array types"),
 					ASTType::Enum(_) => unreachable!("Cannot add two enum types"),
+					ASTType::Template(_) => unreachable!("Cannot add two templates"),
 				};
 
 				let ctype = ctx.ast_type_into_compiled(fn_type);
@@ -875,6 +915,7 @@ fn compile_variable_assignment(
 				format!("(set_local ${} {expr})\n", target.ident)
 			}
 		}
+		CompiledType::Template(_) => todo!(),
 	}
 }
 
@@ -1176,6 +1217,9 @@ impl Compiler {
 		}
 
 		for class in &self.ast.class_types {
+			if class.template.is_some() {
+				continue;
+			}
 			ctx.add_ast_class(class);
 			for method in &class.methods {
 				let fn_name = format!("__{}_class_{}", class.name, method.name);
