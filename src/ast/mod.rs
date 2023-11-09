@@ -43,6 +43,7 @@ pub enum ASTType {
 	Class(ASTClass),
 	Pointer(ASTPointerType),
 	Enum(ASTEnum),
+	Template(String),
 }
 
 impl ASTType {
@@ -55,6 +56,7 @@ impl ASTType {
 			ASTType::Class(class) => class.name.clone(),
 			ASTType::Enum(e) => e.name.clone(),
 			ASTType::Pointer(ptr) => format!("{}Ptr", ptr.type_.name()),
+			ASTType::Template(t) => t.clone(),
 		}
 	}
 
@@ -385,6 +387,10 @@ pub struct ASTClass {
 	pub name: String,
 	pub members: Vec<ASTClassMember>,
 	pub methods: Vec<ASTFunction>,
+	// Name of the template
+	pub template: Option<String>,
+	// Assigned type of the template
+	pub tmpl_type: Option<Box<ASTType>>,
 }
 
 impl ASTClass {
