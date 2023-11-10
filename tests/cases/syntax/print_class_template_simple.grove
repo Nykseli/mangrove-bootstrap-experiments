@@ -1,5 +1,6 @@
 // Output:
 // 131
+// c
 // 123456
 // Hello world
 // 1
@@ -24,12 +25,15 @@ class Foo<T>
 function main() -> none
 {
 	Foo<Int32> bar = { foo: 131 }
+	Foo<Char> barC = { foo: 'c' }
 	Foo<Int64> bar64 = { foo: 123456 }
 	Foo<String> zar = { foo: "Hello world\n" }
 	Foo<TestE> zarE = { foo: TestE.Val1 }
 	Foo<FooVal> fooval = { foo: { val: 123123 }}
 
 	__print_int(bar.foo)
+	__print_char('\n')
+	__print_char(barC.foo)
 	__print_char('\n')
 	__print_int64(bar64.foo)
 	__print_char('\n')

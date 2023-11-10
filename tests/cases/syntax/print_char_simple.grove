@@ -1,0 +1,14 @@
+// Output:
+// abc
+
+function main() -> none
+{
+	Char a = 'a'
+	Char b = 'b'
+	Char c = 'c'
+	Char nl = '\n'
+	__print_char(a)
+	__print_char(b)
+	__print_char(c)
+	__print_char(nl)
+}
