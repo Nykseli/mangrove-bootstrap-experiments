@@ -1,4 +1,4 @@
-use std::mem::discriminant;
+use std::{mem::discriminant, ops::Deref};
 
 #[derive(Debug, Clone)]
 pub struct ASTInt32Type {}
@@ -71,6 +71,10 @@ impl ASTType {
 			}
 			(_, _) => discriminant(self) == discriminant(other),
 		}
+	}
+
+	pub fn is_templ(&self) -> bool {
+		matches!(self, ASTType::Template(_))
 	}
 }
 
@@ -201,6 +205,37 @@ pub enum ASTAssignmentExpr {
 	ClassInit(ASTClassInit),
 	ArrayInit(ASTArrayInit),
 	ASTArrayAccess(ASTArrayAccess),
+}
+
+impl ASTAssignmentExpr {
+	fn set_tmpl_type(&mut self, type_: ASTType) {
+		match self {
+			ASTAssignmentExpr::Arg(ref mut arg) => match arg {
+				ASTAssignArg::Static(_) => (),
+				ASTAssignArg::Ident(ref mut idnt) => {
+					if idnt.ident_type.is_templ() {
+						idnt.ident_type = type_
+					}
+				}
+				ASTAssignArg::DottedIdent(ref mut idnt) => {
+					if idnt.ident_type.is_templ() {
+						idnt.ident_type = type_
+					}
+				}
+				ASTAssignArg::Deref(ref mut idnt) => {
+					if idnt.ident_type.is_templ() {
+						idnt.ident_type = type_
+					}
+				}
+			},
+			ASTAssignmentExpr::Add(_) => todo!(),
+			ASTAssignmentExpr::Minus(_) => todo!(),
+			ASTAssignmentExpr::FunctionCall(_) => todo!(),
+			ASTAssignmentExpr::ClassInit(_) => todo!(),
+			ASTAssignmentExpr::ArrayInit(_) => todo!(),
+			ASTAssignmentExpr::ASTArrayAccess(_) => todo!(),
+		}
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -400,6 +435,79 @@ impl ASTClass {
 
 	pub fn method<'a>(&'a self, name: &'a str) -> Option<&'a ASTFunction> {
 		self.methods.iter().find(|m| m.name == name)
+	}
+
+	pub fn set_template_types(&mut self) {
+		let type_ = if let Some(t) = &self.tmpl_type {
+			t.deref().clone()
+		} else {
+			panic!("No template type in class {}", self.name);
+		};
+
+		for member in &mut self.members {
+			if let ASTType::Template(_) = member.type_ {
+				member.type_ = type_.clone()
+			}
+		}
+
+		for fun in &mut self.methods {
+			for arg in &mut fun.args {
+				match arg.ast_type {
+					ASTType::Class(ref mut class) if arg.ident.ident() == "this" => {
+						class.tmpl_type = Some(Box::new(type_.clone()));
+						class.set_template_types();
+					}
+					ASTType::Template(_) => {
+						arg.ast_type = type_.clone();
+					}
+					_ => continue,
+				}
+			}
+
+			for var in &mut fun.body.variables {
+				match var.ast_type {
+					ASTType::Class(ref mut class) if var.ident.ident() == "this" => {
+						class.tmpl_type = Some(Box::new(type_.clone()));
+						class.set_template_types();
+					}
+					ASTType::Template(_) => {
+						var.ast_type = type_.clone();
+					}
+					_ => continue,
+				}
+			}
+
+			for stmt in &mut fun.body.statements {
+				match stmt {
+					ASTBlockStatement::Assignment(ref mut assign) => {
+						if assign.variable.ast_type.is_templ() {
+							assign.variable.ast_type = type_.clone();
+							assign.expr.set_tmpl_type(type_.clone());
+						}
+					}
+					ASTBlockStatement::DerefAssignment(ref mut assign) => {
+						if assign.variable.ast_type.is_templ() {
+							assign.variable.ast_type = type_.clone();
+							assign.expr.set_tmpl_type(type_.clone());
+						}
+					}
+					ASTBlockStatement::FunctionCall(_) => todo!(),
+					ASTBlockStatement::Return(_) => todo!(),
+					ASTBlockStatement::IfStmt(_) => todo!(),
+				}
+			}
+		}
+	}
+}
+
+impl<'a> TryFrom<&'a ASTType> for &'a ASTClass {
+	type Error = ();
+
+	fn try_from(value: &'a ASTType) -> Result<Self, Self::Error> {
+		match value {
+			ASTType::Class(class) => Ok(class),
+			_ => Err(()),
+		}
 	}
 }
 
