@@ -1,5 +1,6 @@
 (module
 	(import "wasi_unstable" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
+	(import "wasi_unstable" "proc_exit" (func $proc_exit (param i32)))
 
 	;; Count of 64KiB pages
 	(memory 100)
@@ -128,6 +129,11 @@
 		drop ;; Discard the number of bytes written from the top of the stack
 	)
 	(export "__print_str_ptr" (func $__print_str_ptr))
+
+	(func $__exit (param i32)
+		(call $proc_exit (local.get 0))
+	)
+	(export "__exit" (func $__exit))
 
 	;; Storing and loading 8bit numbers
 	;; https://developer.mozilla.org/en-US/docs/webassembly/reference/memory/store
