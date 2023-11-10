@@ -1,0 +1,62 @@
+// Output:
+// 123
+// Hello world
+// 321
+
+class Foo<T>
+{
+	T foo
+
+	function set_foo(T val) -> none
+	{
+		this.foo = val
+	}
+
+	function get_foo() -> T {
+		return this.foo
+	}
+}
+
+class Bar32
+{
+	Int32 val
+
+	function set_val(Int32 val) -> none
+	{
+		this.val = val
+	}
+
+	function get_val() -> Int32 {
+		return this.val
+	}
+}
+
+function print_template() -> none
+{
+	Foo<Int32> fooval = { foo: 123123 }
+	fooval.set_foo(123)
+	Int32 val = fooval.get_foo()
+	__print_int(val)
+	__print_char('\n')
+
+	Foo<String> foostr = { foo: "Quack" }
+	foostr.set_foo("Hello world\n")
+	String str = foostr.get_foo()
+	__print_str(str)
+}
+
+function print_regular() -> none
+{
+	Bar32 fooval = { val: 321321 }
+	fooval.set_val(321)
+	Int32 val = fooval.get_val()
+	__print_int(val)
+	__print_char('\n')
+
+}
+
+function main() -> none
+{
+	print_template()
+	print_regular()
+}
