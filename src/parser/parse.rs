@@ -289,6 +289,31 @@ impl Parser {
 									panic!("Different types: {target_type:#?} {:#?}", mem_type)
 								}
 							}
+						} else if let ASTType::String(_) = &var.ast_type {
+							if dotted.value() == "length" {
+								if !matches!(target_type, ASTType::Int32(_)) {
+									panic!("String.length is type Int32 {:#?}", var);
+								}
+							} else if dotted.value() == "get" {
+								if !matches!(target_type, ASTType::Char) {
+									panic!("String.get is type Char {:#?}", var);
+								}
+								if self.skip_white_peek().unwrap().type_() != TokenType::LeftParen {
+									panic!("String.get is a function call");
+								}
+
+								// Skip left paren
+								self.skip_white().unwrap();
+								let fn_call = self.parse_function_call(
+									Some(var.clone()),
+									dotted.value(),
+									true,
+								);
+
+								return Either::Right(ASTAssignmentExpr::FunctionCall(fn_call));
+							} else {
+								panic!("String doesn't have the member '{}'", dotted.value());
+							}
 						} else {
 							panic!("Only custom type dotted args implemented");
 						}
