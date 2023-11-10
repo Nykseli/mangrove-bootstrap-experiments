@@ -1,0 +1,19 @@
+// Output:
+// Hello world
+// Hd
+// 12
+
+function main() -> none
+{
+	String str = "Hello world\n"
+	Char h1 = str.get(0)
+	Char d1 = str.get(10)
+	Int32 len = str.length
+
+	__print_str(str)
+	__print_char(h1)
+	__print_char(d1)
+	__print_char('\n')
+	__print_int(len)
+	__print_char('\n')
+}
