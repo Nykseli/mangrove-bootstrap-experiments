@@ -728,6 +728,26 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 					}];
 				}
 
+				match &func.variable {
+					Some(var) if matches!(var.ast_type, ASTType::String(_)) => {
+						if func.name == "get" {
+							assert!(func.args.len() == 1, "String.get has exactly one argument");
+							let arg = func.args[0].compile(ctx);
+							// get the variable pointer
+							let expr = format!(
+								"(i32.load8_u (i32.add (i32.wrap_i64 (get_local ${})) {arg}))",
+								var.ident.ident()
+							);
+							return vec![InitExpression {
+								expr,
+								offset,
+								is32b: true,
+							}];
+						}
+					}
+					_ => (),
+				}
+
 				let (arg, fn_name) = if let Some(var) = &func.variable {
 					let fn_name = match &var.ast_type {
 						ASTType::Class(c) if c.tmpl_type.is_some() => {
