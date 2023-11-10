@@ -204,6 +204,16 @@ impl Parser {
 				}
 				_ => panic!("Expected int Token {target_type:#?}"),
 			},
+			TokenType::CharLit => match target_type {
+				ASTType::Char => {
+					let chr = value.value().chars().next().unwrap();
+					Either::Left(ASTAssignArg::Static(ASTStaticAssign {
+						value: StaticValue::Char(chr),
+						value_type: ASTType::Char,
+					}))
+				}
+				_ => panic!("Expected char Token {target_type:#?}"),
+			},
 			TokenType::StringLit => {
 				if let ASTType::String(_) = target_type {
 					// I've forgotten how to do this properly
@@ -557,6 +567,8 @@ impl Parser {
 	fn parse_ast_type(&mut self, type_token: &Token, next: Option<&Token>) -> ASTType {
 		let type_ = if type_token.value() == "String" {
 			ASTType::String(ASTStringType::default())
+		} else if type_token.value() == "Char" {
+			ASTType::Char
 		} else if type_token.value() == "Int64" {
 			ASTType::Int64
 		} else if type_token.value() == "Int32" {
@@ -801,6 +813,7 @@ impl Parser {
 					ASTType::Enum(_) => todo!(),
 					ASTType::Pointer(_) => todo!(),
 					ASTType::Template(_) => todo!(),
+					ASTType::Char => todo!(),
 				};
 
 				let dotted =
