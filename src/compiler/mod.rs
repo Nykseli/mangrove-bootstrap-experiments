@@ -1130,7 +1130,17 @@ fn compile_function(
 						format!("(get_local ${var_name})")
 					};
 
-					format!("__{}_class_{} {local}", var.ast_type.name(), call.name,)
+					match &var.ast_type {
+						ASTType::Class(c) if c.tmpl_type.is_some() => {
+							format!(
+								"__{}{}_class_{} {local}",
+								var.ast_type.name(),
+								c.tmpl_type.as_deref().unwrap().name(),
+								call.name,
+							)
+						}
+						_ => format!("__{}_class_{} {local}", var.ast_type.name(), call.name),
+					}
 				} else {
 					call.name.clone()
 				};
@@ -1229,12 +1239,17 @@ impl Compiler {
 		}
 
 		for class in &self.ast.class_types {
-			if class.template.is_some() {
+			if class.template.is_some() && class.tmpl_type.is_none() {
 				continue;
 			}
 			ctx.add_ast_class(class);
 			for method in &class.methods {
-				let fn_name = format!("__{}_class_{}", class.name, method.name);
+				let fn_name = if let Some(type_) = &class.tmpl_type {
+					format!("__{}{}_class_{}", class.name, type_.name(), method.name)
+				} else {
+					format!("__{}_class_{}", class.name, method.name)
+				};
+
 				compile_function(&mut ctx, &mut instructions, &fn_name, method);
 			}
 		}
