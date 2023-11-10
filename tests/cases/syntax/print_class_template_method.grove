@@ -1,0 +1,27 @@
+// Output:
+// 123
+// Hello world
+
+class Foo<T>
+{
+	T foo
+
+	function set_foo(T val) -> none
+	{
+		this.foo = val
+	}
+}
+
+function main() -> none
+{
+	Foo<Int32> fooval = { foo: 123123 }
+	fooval.set_foo(123)
+	Int32 val = fooval.foo
+	__print_int(val)
+	__print_char('\n')
+
+	Foo<String> foostr = { foo: "Quack" }
+	foostr.set_foo("Hello world\n")
+	String str = foostr.foo
+	__print_str(str)
+}
