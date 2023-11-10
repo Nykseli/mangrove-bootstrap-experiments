@@ -45,6 +45,20 @@ impl Parser {
 		self.class_types.iter().find(|ct| ct.name == name).cloned()
 	}
 
+	pub fn add_templated_class(&mut self, class: &ASTClass) {
+		let type_ = match (&class.template, &class.tmpl_type) {
+			(Some(_), Some(type_)) => type_.deref(),
+			_ => {
+				return;
+			}
+		};
+
+		let name = format!("{}{}", class.name, type_.name());
+		if self.class_type(&name).is_none() {
+			self.class_types.push(class.clone());
+		}
+	}
+
 	pub fn enum_type(&self, name: &str) -> Option<ASTEnum> {
 		// TODO: add lifetiems so we can use a ref
 		self.enum_types.iter().find(|ct| ct.name == name).cloned()
@@ -105,6 +119,7 @@ impl Parser {
 					arg.value().chars().next().unwrap(),
 				)),
 				TokenType::IntLit => {
+					// TODO: support Int64
 					args.push(ASTFunctionCallArg::Int32(arg.value().parse().unwrap()))
 				}
 				TokenType::Ident => {
@@ -210,13 +225,18 @@ impl Parser {
 							let member = class
 								.member(dotted.value())
 								.unwrap_or_else(|| panic!("{} member not found", dotted.value()));
-							let mem_type = if let ASTType::Template(_) = &member.type_ {
-								class.tmpl_type.as_deref().unwrap()
-							} else {
-								&member.type_
-							};
-							if !mem_type.has_same_type(target_type) {
-								panic!("Different types: {target_type:#?} {:#?}", mem_type)
+
+							// If types are not the same, try again if it's a correct template
+							if !member.type_.has_same_type(target_type) {
+								let mem_type = if let ASTType::Template(_) = &member.type_ {
+									class.tmpl_type.as_deref().unwrap()
+								} else {
+									&member.type_
+								};
+
+								if !mem_type.has_same_type(target_type) {
+									panic!("Different types: {target_type:#?} {:#?}", mem_type)
+								}
 							}
 						} else {
 							panic!("Only custom type dotted args implemented");
@@ -500,7 +520,9 @@ impl Parser {
 			if let Some(next) = next {
 				if next.type_() == TokenType::RelOp {
 					if let Some(type_) = self.parse_class_template_type() {
-						custom.tmpl_type = Some(Box::new(type_))
+						custom.tmpl_type = Some(Box::new(type_));
+						custom.set_template_types();
+						self.add_templated_class(&custom);
 					}
 				}
 			}
@@ -788,6 +810,12 @@ impl Parser {
 
 	/// This refers to the current class/object
 	fn parse_function(&mut self, this: Option<ASTVariable>) -> ASTFunction {
+		let fn_tmpl = this
+			.as_ref()
+			.map(|var| &var.ast_type)
+			.and_then(|type_| type_.try_into().ok())
+			.and_then(|class: &ASTClass| class.template.clone());
+
 		let ident = self.skip_white().unwrap();
 		let name = if ident.type_() == TokenType::Ident {
 			ident.value()
@@ -815,7 +843,10 @@ impl Parser {
 				panic!("Expected identifier {ident:#?}");
 			}
 
-			let ast_type = self.parse_ast_type(&ident, None);
+			let ast_type = match &fn_tmpl {
+				Some(t) if t == ident.value() => ASTType::Template(t.clone()),
+				_ => self.parse_ast_type(&ident, None),
+			};
 
 			ident = self.skip_white().unwrap();
 			if ident.type_() != TokenType::Ident {
@@ -844,10 +875,10 @@ impl Parser {
 		}
 
 		let return_type = self.skip_white().unwrap();
-		let returns = match return_type.type_() {
-			TokenType::NoneType => None,
-			// Just assuming that it's Int32
-			TokenType::Ident => Some(self.parse_ast_type(&return_type, None)),
+		let returns = match (fn_tmpl, return_type.type_()) {
+			(Some(t), TokenType::Ident) if t == return_type.value() => Some(ASTType::Template(t)),
+			(_, TokenType::Ident) => Some(self.parse_ast_type(&return_type, None)),
+			(_, TokenType::NoneType) => None,
 			_ => panic!("Didn't expect {return_type:#?}"),
 		};
 
