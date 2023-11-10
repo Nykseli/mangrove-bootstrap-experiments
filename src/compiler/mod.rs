@@ -716,11 +716,29 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 					}];
 				}
 
-				let mut arg_str = String::new();
+				let (arg, fn_name) = if let Some(var) = &func.variable {
+					let fn_name = match &var.ast_type {
+						ASTType::Class(c) if c.tmpl_type.is_some() => {
+							format!(
+								"__{}{}_class_{}",
+								var.ast_type.name(),
+								c.tmpl_type.as_deref().unwrap().name(),
+								func.name,
+							)
+						}
+						_ => format!("__{}_class_{}", var.ast_type.name(), func.name),
+					};
+					(format!("(get_local ${})", var.ident.ident()), fn_name)
+				} else {
+					(String::new(), func.name.clone())
+				};
+
+				let mut arg_str = arg;
 				for arg in &func.args {
 					arg_str.push_str(&arg.compile(ctx));
 				}
-				let expr = format!("(call ${} {arg_str})\n", func.name);
+
+				let expr = format!("(call ${} {arg_str})\n", fn_name);
 				let is32b = if let Some(type_) = &func.variable {
 					ctx.ast_type_into_compiled(&type_.ast_type).is32b()
 				} else {
