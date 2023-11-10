@@ -1,8 +1,8 @@
 use crate::{
 	ast::{
-		ASTArrayAccess, ASTArrayInit, ASTAssignArg, ASTAssignmentExpr, ASTBlockStatement, ASTClass,
-		ASTClassInit, ASTEnum, ASTFunction, ASTFunctionCallArg, ASTIdent, ASTLtStmt, ASTType,
-		StaticValue,
+		ASTArrayAccess, ASTArrayInit, ASTAssignArg, ASTAssignmentExpr, ASTBlock, ASTBlockStatement,
+		ASTClass, ASTClassInit, ASTEnum, ASTFunction, ASTFunctionCallArg, ASTIdent, ASTLtStmt,
+		ASTType, StaticValue,
 	},
 	parser::parse::Parser,
 };
@@ -1044,83 +1044,16 @@ fn compile_format_print_call(ctx: &mut CompileCtx, args: &Vec<ASTFunctionCallArg
 	function
 }
 
-fn compile_function(
+// Compile block, variables are not block scoped
+fn compile_block(
 	ctx: &mut CompileCtx,
-	instructions: &mut String,
-	fn_name: &str,
 	function: &ASTFunction,
+	block: &ASTBlock,
+	body: &mut String,
+	variables: &mut String,
+	fn_stack_size: i32,
 ) {
-	// pointer and variables are local to functions
-	ctx.vars = function
-		.body
-		.variables
-		.iter()
-		.map(|v| CompiledVariable {
-			type_: ctx.ast_type_into_compiled(&v.ast_type),
-			ident: (&v.ident).try_into().unwrap(),
-		})
-		.collect();
-
-	let mut variables = String::new();
-	let mut body = String::new();
-
-	instructions.push_str(&format!("(func ${}", fn_name));
-	let fn_stack_size = ctx.vars.iter().fold(0, |acc, v| acc + v.type_.size());
-	variables.push_str("(local $__stack_ptr i32)\n");
-	body.push_str(&format!(
-		"(set_local $__stack_ptr (call $__reserve_stack_bytes (i32.const {fn_stack_size})))\n"
-	));
-
-	if !function.args.is_empty() {
-		instructions.push_str("(param");
-		for (idx, arg) in function.args.iter().enumerate() {
-			let arg_type = ctx.ast_type_into_compiled(&arg.ast_type);
-			let ints = if arg_type.is32b() { "i32" } else { "i64" };
-			instructions.push_str(&format!(" {ints}"));
-			let arg_ident: String = (&arg.ident).try_into().unwrap();
-			body.push_str(&format!("(set_local ${} (local.get {}))\n", arg_ident, idx));
-			variables.push_str(&format!("(local ${} {ints})\n", arg_ident));
-			ctx.vars.push(CompiledVariable {
-				type_: arg_type,
-				ident: arg_ident,
-			})
-		}
-
-		if let Some(ret) = &function.returns {
-			if ctx.ast_type_into_compiled(ret).copy_size().is_some() {
-				body.push_str(&format!(
-					"(set_local $__return_ptr (local.get {}))\n",
-					function.args.len()
-				));
-				variables.push_str("(local $__return_ptr i32)\n");
-				instructions.push_str(" i32")
-			}
-		}
-
-		instructions.push(')');
-	} else if let Some(ret) = &function.returns {
-		if ctx.ast_type_into_compiled(ret).copy_size().is_some() {
-			instructions.push_str("(param i32)");
-			body.push_str(&format!(
-				"(set_local $__return_ptr (local.get {}))\n",
-				function.args.len()
-			));
-			variables.push_str("(local $__return_ptr i32)\n");
-		}
-	}
-
-	// TODO: function returns type
-	if let Some(ret) = &function.returns {
-		if ctx.ast_type_into_compiled(ret).is32b() {
-			instructions.push_str("(result i32)\n");
-		} else {
-			instructions.push_str("(result i64)\n");
-		}
-	} else {
-		instructions.push('\n');
-	}
-
-	for statment in &function.body.statements {
+	for statment in &block.statements {
 		match statment {
 			ASTBlockStatement::DerefAssignment(assign) | ASTBlockStatement::Assignment(assign) => {
 				let is_deref = matches!(statment, ASTBlockStatement::DerefAssignment(_));
@@ -1222,25 +1155,14 @@ fn compile_function(
 			}
 			ASTBlockStatement::IfStmt(stmt) => {
 				let mut inner_stmts = String::new();
-				for inner_block in &stmt.block.statements {
-					match inner_block {
-						ASTBlockStatement::Return(stmt) => {
-							let ret = stmt.expr.compile(
-								ctx,
-								&CompiledType::Internal(InternalType::Int32),
-								0,
-							);
-							assert!(ret.len() == 1, "Return expression len needs to be 1");
-							let ret = &ret[0].expr;
-							// TODO: mem_n_copy to the $__return_ptr, if needed
-							inner_stmts.push_str(&format!(
-								"(call $__release_stack_bytes (i32.const {fn_stack_size}))\n"
-							));
-							inner_stmts.push_str(&format!("(return {ret}\n)"))
-						}
-						_ => panic!("Only return in if blocks"),
-					}
-				}
+				compile_block(
+					ctx,
+					function,
+					&stmt.block,
+					&mut inner_stmts,
+					variables,
+					fn_stack_size,
+				);
 
 				body.push_str(&format!(
 					"(if {} (then {}))\n",
@@ -1250,6 +1172,92 @@ fn compile_function(
 			}
 		}
 	}
+}
+
+fn compile_function(
+	ctx: &mut CompileCtx,
+	instructions: &mut String,
+	fn_name: &str,
+	function: &ASTFunction,
+) {
+	// pointer and variables are local to functions
+	ctx.vars = function
+		.body
+		.variables
+		.iter()
+		.map(|v| CompiledVariable {
+			type_: ctx.ast_type_into_compiled(&v.ast_type),
+			ident: (&v.ident).try_into().unwrap(),
+		})
+		.collect();
+
+	let mut variables = String::new();
+	let mut body = String::new();
+
+	instructions.push_str(&format!("(func ${}", fn_name));
+	let fn_stack_size = ctx.vars.iter().fold(0, |acc, v| acc + v.type_.size());
+	variables.push_str("(local $__stack_ptr i32)\n");
+	body.push_str(&format!(
+		"(set_local $__stack_ptr (call $__reserve_stack_bytes (i32.const {fn_stack_size})))\n"
+	));
+
+	if !function.args.is_empty() {
+		instructions.push_str("(param");
+		for (idx, arg) in function.args.iter().enumerate() {
+			let arg_type = ctx.ast_type_into_compiled(&arg.ast_type);
+			let ints = if arg_type.is32b() { "i32" } else { "i64" };
+			instructions.push_str(&format!(" {ints}"));
+			let arg_ident: String = (&arg.ident).try_into().unwrap();
+			body.push_str(&format!("(set_local ${} (local.get {}))\n", arg_ident, idx));
+			variables.push_str(&format!("(local ${} {ints})\n", arg_ident));
+			ctx.vars.push(CompiledVariable {
+				type_: arg_type,
+				ident: arg_ident,
+			})
+		}
+
+		if let Some(ret) = &function.returns {
+			if ctx.ast_type_into_compiled(ret).copy_size().is_some() {
+				body.push_str(&format!(
+					"(set_local $__return_ptr (local.get {}))\n",
+					function.args.len()
+				));
+				variables.push_str("(local $__return_ptr i32)\n");
+				instructions.push_str(" i32")
+			}
+		}
+
+		instructions.push(')');
+	} else if let Some(ret) = &function.returns {
+		if ctx.ast_type_into_compiled(ret).copy_size().is_some() {
+			instructions.push_str("(param i32)");
+			body.push_str(&format!(
+				"(set_local $__return_ptr (local.get {}))\n",
+				function.args.len()
+			));
+			variables.push_str("(local $__return_ptr i32)\n");
+		}
+	}
+
+	// TODO: function returns type
+	if let Some(ret) = &function.returns {
+		if ctx.ast_type_into_compiled(ret).is32b() {
+			instructions.push_str("(result i32)\n");
+		} else {
+			instructions.push_str("(result i64)\n");
+		}
+	} else {
+		instructions.push('\n');
+	}
+
+	compile_block(
+		ctx,
+		&function,
+		&function.body,
+		&mut body,
+		&mut variables,
+		fn_stack_size,
+	);
 
 	// if function returns, stack is released just before return
 	// otherwise it needs to be released at the end of the function
