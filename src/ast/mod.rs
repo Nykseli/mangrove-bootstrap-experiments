@@ -491,9 +491,17 @@ impl ASTClass {
 							assign.expr.set_tmpl_type(type_.clone());
 						}
 					}
+					ASTBlockStatement::Return(ref mut ret) => {
+						ret.expr.set_tmpl_type(type_.clone());
+					}
 					ASTBlockStatement::FunctionCall(_) => todo!(),
-					ASTBlockStatement::Return(_) => todo!(),
 					ASTBlockStatement::IfStmt(_) => todo!(),
+				}
+			}
+
+			if let Some(ret) = &fun.returns {
+				if matches!(ret, ASTType::Template(_)) {
+					fun.returns = Some(type_.clone())
 				}
 			}
 		}
