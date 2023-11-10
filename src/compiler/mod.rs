@@ -12,6 +12,7 @@ enum InternalType {
 	String,
 	Int32,
 	Int64,
+	Char,
 }
 
 impl InternalType {
@@ -22,6 +23,8 @@ impl InternalType {
 			// i32 is always 4 bytes
 			InternalType::Int32 => 4,
 			InternalType::Int64 => 8,
+			// Char is 4 so it can fit UTF-8
+			InternalType::Char => 4,
 		}
 	}
 
@@ -31,6 +34,7 @@ impl InternalType {
 			InternalType::String => false,
 			InternalType::Int32 => true,
 			InternalType::Int64 => false,
+			InternalType::Char => true,
 		}
 	}
 }
@@ -43,6 +47,8 @@ impl From<&str> for InternalType {
 			InternalType::Int32
 		} else if value == "Int64" {
 			InternalType::Int64
+		} else if value == "Char" {
+			InternalType::Char
 		} else {
 			panic!("{}", format!("No internal type '{value}'"))
 		}
@@ -304,6 +310,7 @@ impl CompileCtx {
 
 	fn ast_type_into_compiled(&mut self, ast_type: &ASTType) -> CompiledType {
 		match ast_type {
+			ASTType::Char => CompiledType::Internal(InternalType::Char),
 			ASTType::Int64 => CompiledType::Internal(InternalType::Int64),
 			ASTType::Int32(_) => CompiledType::Internal(InternalType::Int32),
 			ASTType::String(_) => CompiledType::Internal(InternalType::String),
@@ -427,6 +434,7 @@ impl CompileCtx {
 				}
 				InternalType::Int32 => todo!("Implement Int32 members"),
 				InternalType::Int64 => todo!("Implement Int64 members"),
+				InternalType::Char => todo!("Implement Char members"),
 			},
 			CompiledType::Class(class) => {
 				let member = class.member(dotted);
@@ -513,6 +521,9 @@ impl ASTAssignArg {
 					let sstring = ctx.add_static_string(string);
 					let value = sstring.value();
 					InitExpression::new_64b(offset, format!("(i64.const {})", value))
+				}
+				StaticValue::Char(char) => {
+					InitExpression::new(offset, format!("(i32.const {})", *char as u64))
 				}
 			},
 
@@ -663,6 +674,7 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 					ASTType::Array(_) => unreachable!("Cannot add two array types"),
 					ASTType::Enum(_) => unreachable!("Cannot add two enum types"),
 					ASTType::Template(_) => unreachable!("Cannot add two templates"),
+					ASTType::Char => todo!(),
 				};
 
 				let ctype = ctx.ast_type_into_compiled(fn_type);
