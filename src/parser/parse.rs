@@ -11,6 +11,21 @@ use crate::ast::{
 use super::tokeniser::Tokeniser;
 use super::types::{Token, TokenType};
 
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+enum Either<L, R> {
+	Left(L),
+	Right(R),
+}
+
+impl<L, R> Either<L, R> {
+	pub fn into_left(self) -> L {
+		match self {
+			Either::Left(l) => l,
+			Either::Right(_) => panic!("Expected left value"),
+		}
+	}
+}
+
 #[derive(Debug)]
 struct BlockCtx {
 	variables: Vec<ASTVariable>,
@@ -158,7 +173,7 @@ impl Parser {
 		ctx: &BlockCtx,
 		target_type: &ASTType,
 		value: &Token,
-	) -> ASTAssignArg {
+	) -> Either<ASTAssignArg, ASTAssignmentExpr> {
 		let value = if value.type_() == TokenType::AddOp {
 			let next = self.skip_white_peek().unwrap();
 			if next.type_() != TokenType::IntLit {
@@ -175,17 +190,17 @@ impl Parser {
 			TokenType::IntLit => match target_type {
 				ASTType::Int32(_) | ASTType::Pointer(_) => {
 					let value = StaticValue::Int32(value.value().parse::<i32>().unwrap());
-					ASTAssignArg::Static(ASTStaticAssign {
+					Either::Left(ASTAssignArg::Static(ASTStaticAssign {
 						value,
 						value_type: ASTType::Int32(ASTInt32Type {}),
-					})
+					}))
 				}
 				ASTType::Int64 => {
 					let value = StaticValue::Int64(value.value().parse::<i64>().unwrap());
-					ASTAssignArg::Static(ASTStaticAssign {
+					Either::Left(ASTAssignArg::Static(ASTStaticAssign {
 						value,
 						value_type: ASTType::Int64,
-					})
+					}))
 				}
 				_ => panic!("Expected int Token {target_type:#?}"),
 			},
@@ -197,10 +212,10 @@ impl Parser {
 				}
 
 				let value = StaticValue::String(value.value().into());
-				ASTAssignArg::Static(ASTStaticAssign {
+				Either::Left(ASTAssignArg::Static(ASTStaticAssign {
 					value,
 					value_type: ASTType::String(ASTStringType::default()),
-				})
+				}))
 			}
 			TokenType::MulOp | TokenType::Ident => {
 				let (is_deref, value) = if value.type_() == TokenType::MulOp {
@@ -222,6 +237,32 @@ impl Parser {
 					if let Some(var) = ctx.variables.iter().find(|v| v.ident == value.value()) {
 						// TODO: Buildin type member checking
 						if let ASTType::Class(class) = &var.ast_type {
+							// let method = class.method(dotted.value())
+							if self.skip_white_peek().unwrap().type_() == TokenType::LeftParen {
+								if let Some(method) = class.method(dotted.value()) {
+									if !method
+										.returns
+										.as_ref()
+										.is_some_and(|f| f.has_same_type(target_type))
+									{
+										panic!(
+											"No proper method found: {:#?} {:#?}",
+											method.returns, target_type
+										)
+									}
+
+									// Skip left paren
+									self.skip_white().unwrap();
+									let fn_call = self.parse_function_call(
+										Some(var.clone()),
+										dotted.value(),
+										true,
+									);
+
+									return Either::Right(ASTAssignmentExpr::FunctionCall(fn_call));
+								}
+							}
+
 							let member = class
 								.member(dotted.value())
 								.unwrap_or_else(|| panic!("{} member not found", dotted.value()));
@@ -257,10 +298,10 @@ impl Parser {
 					if is_deref {
 						unimplemented!("Dotted ident deref is not implemented")
 					} else {
-						return ASTAssignArg::DottedIdent(ASTAssignDottedIdent {
+						return Either::Left(ASTAssignArg::DottedIdent(ASTAssignDottedIdent {
 							ident: (ident, dotted.value().into()),
 							ident_type: target_type.clone(),
-						});
+						}));
 					}
 				}
 
@@ -302,16 +343,16 @@ impl Parser {
 				};
 
 				if is_deref {
-					ASTAssignArg::Deref(ASTAssignIdent {
+					Either::Left(ASTAssignArg::Deref(ASTAssignIdent {
 						ident: value.value().into(),
 						ident_type: target_type.clone(),
-					})
+					}))
 				} else {
 					// TODO: properly create the type info
-					ASTAssignArg::Ident(ASTAssignIdent {
+					Either::Left(ASTAssignArg::Ident(ASTAssignIdent {
 						ident: value.value().into(),
 						ident_type: target_type.clone(),
-					})
+					}))
 				}
 			}
 			_ => unimplemented!("{value:#?}"),
@@ -409,7 +450,13 @@ impl Parser {
 			let array = self.parse_array_init(ctx, target_type);
 			return ASTAssignmentExpr::ArrayInit(array);
 		}
+
 		let value = self.parse_value_token(ctx, target_type, &value_token);
+		let value = match value {
+			Either::Left(value) => value,
+			Either::Right(expr) => return expr,
+		};
+
 		let peek = self.skip_white_peek().unwrap();
 		let expr = match peek.type_() {
 			TokenType::AddOp => {
@@ -417,7 +464,7 @@ impl Parser {
 				let token = self.skip_white().unwrap();
 				// get the assignment
 				let rhs = self.skip_white().unwrap();
-				let rhs = self.parse_value_token(ctx, target_type, &rhs);
+				let rhs = self.parse_value_token(ctx, target_type, &rhs).into_left();
 				if token.value() == "+" {
 					ASTAssignmentExpr::Add(ASTAdd { lhs: value, rhs })
 				} else {
@@ -618,7 +665,9 @@ impl Parser {
 		let value_token = self.skip_white().unwrap();
 		// TODO: poperly figure out the target type
 		let target_type = ASTType::Int32(ASTInt32Type {});
-		let value = self.parse_value_token(ctx, &target_type, &value_token);
+		let value = self
+			.parse_value_token(ctx, &target_type, &value_token)
+			.into_left();
 
 		let peek = self.skip_white_peek().unwrap();
 		let conditional = match peek.type_() {
@@ -627,7 +676,7 @@ impl Parser {
 				self.skip_white().unwrap();
 				// get the assignment
 				let rhs = self.skip_white().unwrap();
-				let rhs = self.parse_value_token(ctx, &target_type, &rhs);
+				let rhs = self.parse_value_token(ctx, &target_type, &rhs).into_left();
 				ASTLtStmt { lhs: value, rhs }
 			}
 			_ => panic!("I have no idea what's happening"),
