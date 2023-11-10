@@ -1309,6 +1309,7 @@ impl Compiler {
 			(import \"internals\" \"__string_concat2\" (func $__string_concat2 (param i64) (param i64) (result i64)))
 			(import \"internals\" \"__print_str\" (func $__print_str (param i64)))
 			(import \"internals\" \"__print_str_ptr\" (func $__print_str_ptr (param i32)))
+			(import \"internals\" \"__exit\" (func $__exit (param i32)))
 			;; shared internal memory
 			(import \"internals\" \"memory\" (memory 0))
 
