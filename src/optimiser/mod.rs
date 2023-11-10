@@ -14,6 +14,7 @@ impl ASTAssignArg {
 				StaticValue::Int32(val) => ConstantValue::Int32(*val),
 				StaticValue::Int64(val) => ConstantValue::Int64(*val),
 				StaticValue::String(val) => ConstantValue::String(val.clone()),
+				StaticValue::Char(_) => return None,
 			},
 			ASTAssignArg::Ident(ident) => {
 				if let Some(var) = ctx.variable(&ident.ident) {
