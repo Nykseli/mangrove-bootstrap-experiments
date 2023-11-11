@@ -376,48 +376,27 @@ impl ASTBlock {
 	}
 }
 
-/// Less-than
+/// Comparison statement
 #[derive(Debug, Clone)]
-pub struct ASTLtStmt {
-	pub rhs: ASTAssignArg,
-	pub lhs: ASTAssignArg,
-}
-
-/// Less or equal
-#[derive(Debug, Clone)]
-pub struct ASTLeStmt {
-	pub rhs: ASTAssignArg,
-	pub lhs: ASTAssignArg,
-}
-
-/// Greater than
-#[derive(Debug, Clone)]
-pub struct ASTGtStmt {
-	pub rhs: ASTAssignArg,
-	pub lhs: ASTAssignArg,
-}
-
-/// Greater or equal
-#[derive(Debug, Clone)]
-pub struct ASTGeStmt {
-	pub rhs: ASTAssignArg,
-	pub lhs: ASTAssignArg,
-}
-
-/// Equal
-#[derive(Debug, Clone)]
-pub struct ASTEqStmt {
+pub struct ASTCmpStmt {
 	pub rhs: ASTAssignArg,
 	pub lhs: ASTAssignArg,
 }
 
 #[derive(Debug, Clone)]
 pub enum ASTConditional {
-	Lt(ASTLtStmt),
-	Le(ASTLeStmt),
-	Gt(ASTGtStmt),
-	Ge(ASTGeStmt),
-	Eq(ASTEqStmt),
+	/// Less than
+	Lt(ASTCmpStmt),
+	/// Less than or equal
+	Le(ASTCmpStmt),
+	/// Greater than
+	Gt(ASTCmpStmt),
+	/// Greater than or equal
+	Ge(ASTCmpStmt),
+	/// Equal
+	Eq(ASTCmpStmt),
+	/// Not equal
+	Ne(ASTCmpStmt),
 }
 
 #[derive(Debug, Clone)]
