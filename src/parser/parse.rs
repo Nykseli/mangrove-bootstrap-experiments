@@ -709,10 +709,13 @@ impl Parser {
 		ctx: &BlockCtx,
 		return_type: Option<&ASTType>,
 	) -> ASTReturn {
-		// TODO: support none return types
-		let ret = return_type.unwrap_or_else(|| panic!("Return type cannot be none"));
 		// TODO: Target type should be block's type
-		let expr = self.parse_assign_expr(ctx, ret);
+		let expr = if let Some(ret) = return_type {
+			Some(self.parse_assign_expr(ctx, ret))
+		} else {
+			None
+		};
+
 		ASTReturn { expr }
 	}
 
