@@ -113,12 +113,8 @@ impl Parser {
 
 		let is_static = if let Some(var) = &variable {
 			if let ASTType::Class(class) = &var.ast_type {
-				class
-					.method(name)
-					.unwrap_or_else(|| {
-						panic!("Class {} doesn't have the method {name}", class.name)
-					})
-					.static_
+				// TODO: support recursive static method calls
+				class.method(name).is_some_and(|m| m.static_)
 			} else {
 				false
 			}
@@ -1055,7 +1051,7 @@ impl Parser {
 						name: name.clone(),
 						template: template.clone(),
 						tmpl_type: None,
-						methods: Vec::new(),
+						methods: methods.clone(),
 					});
 
 					let var = ASTVariable {
