@@ -1201,13 +1201,18 @@ fn compile_block(
 				body.push_str(&format!("(call ${name} {args})\n"));
 			}
 			ASTBlockStatement::Return(stmt) => {
+				if stmt.expr.is_none() {
+					body.push_str(&format!("(return\n)"));
+					return;
+				}
+
 				// TODO: support none return
 				let ret = function
 					.returns
 					.as_ref()
 					.unwrap_or_else(|| panic!("Cannot return none"));
 				let type_ = ctx.ast_type_into_compiled(ret);
-				let ret = stmt.expr.compile(ctx, &type_, 0);
+				let ret = stmt.expr.as_ref().unwrap().compile(ctx, &type_, 0);
 				assert!(ret.len() == 1, "Return expression len needs to be 1");
 				let ret = &ret[0].expr;
 
