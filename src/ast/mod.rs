@@ -161,6 +161,15 @@ impl ASTAssignArg {
 	pub fn has_same_type(&self, other: &Self) -> bool {
 		discriminant(self) == discriminant(other)
 	}
+
+	pub fn ast_type(&self) -> ASTType {
+		match self {
+			ASTAssignArg::Static(stat) => stat.value_type.clone(),
+			ASTAssignArg::Ident(ident) => ident.ident_type.clone(),
+			ASTAssignArg::DottedIdent(ident) => ident.ident_type.clone(),
+			ASTAssignArg::Deref(dref) => dref.ident_type.clone(),
+		}
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -367,15 +376,53 @@ impl ASTBlock {
 	}
 }
 
+/// Less-than
 #[derive(Debug, Clone)]
 pub struct ASTLtStmt {
 	pub rhs: ASTAssignArg,
 	pub lhs: ASTAssignArg,
 }
 
+/// Less or equal
+#[derive(Debug, Clone)]
+pub struct ASTLeStmt {
+	pub rhs: ASTAssignArg,
+	pub lhs: ASTAssignArg,
+}
+
+/// Greater than
+#[derive(Debug, Clone)]
+pub struct ASTGtStmt {
+	pub rhs: ASTAssignArg,
+	pub lhs: ASTAssignArg,
+}
+
+/// Greater or equal
+#[derive(Debug, Clone)]
+pub struct ASTGeStmt {
+	pub rhs: ASTAssignArg,
+	pub lhs: ASTAssignArg,
+}
+
+/// Equal
+#[derive(Debug, Clone)]
+pub struct ASTEqStmt {
+	pub rhs: ASTAssignArg,
+	pub lhs: ASTAssignArg,
+}
+
+#[derive(Debug, Clone)]
+pub enum ASTConditional {
+	Lt(ASTLtStmt),
+	Le(ASTLeStmt),
+	Gt(ASTGtStmt),
+	Ge(ASTGeStmt),
+	Eq(ASTEqStmt),
+}
+
 #[derive(Debug, Clone)]
 pub struct ASTIfStmt {
-	pub conditional: ASTLtStmt,
+	pub conditional: ASTConditional,
 	pub block: ASTBlock,
 }
 
