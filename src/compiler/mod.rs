@@ -1,7 +1,7 @@
 use crate::{
 	ast::{
 		ASTArrayAccess, ASTArrayInit, ASTAssignArg, ASTAssignmentExpr, ASTBlock, ASTBlockStatement,
-		ASTClass, ASTClassInit, ASTEnum, ASTFunction, ASTFunctionCallArg, ASTIdent, ASTLtStmt,
+		ASTClass, ASTClassInit, ASTConditional, ASTEnum, ASTFunction, ASTFunctionCallArg, ASTIdent,
 		ASTType, StaticValue,
 	},
 	parser::parse::Parser,
@@ -546,16 +546,54 @@ impl ASTAssignArg {
 	}
 }
 
-impl ASTLtStmt {
+impl ASTConditional {
 	fn compile(&self, ctx: &mut CompileCtx) -> String {
+		// This type is actually never used, the compile api is just misleading
+		let unused = CompiledType::Internal(InternalType::Int32);
+		let (lhs, rhs, cmp) = match &self {
+			ASTConditional::Lt(stmt) => (&stmt.lhs, &stmt.rhs, "lt"),
+			ASTConditional::Le(stmt) => (&stmt.lhs, &stmt.rhs, "le"),
+			ASTConditional::Gt(stmt) => (&stmt.lhs, &stmt.rhs, "gt"),
+			ASTConditional::Ge(stmt) => (&stmt.lhs, &stmt.rhs, "ge"),
+			ASTConditional::Eq(stmt) => (&stmt.lhs, &stmt.rhs, "eq"),
+		};
+
+		// Assuming that lhs and rhs are the same
+		let (type_, signed) = match &lhs.ast_type() {
+			ASTType::Int64 => {
+				let t = if cmp != "eq" { "_s" } else { "" };
+				("i64", t)
+			}
+			ASTType::Char => {
+				let t = if cmp != "eq" { "_u" } else { "" };
+				("i32", t)
+			}
+			ASTType::Int32(_) => {
+				let t = if cmp != "eq" { "_s" } else { "" };
+				("i32", t)
+			}
+			ASTType::Enum(_) => {
+				if cmp != "eq" {
+					panic!("Enums can only be compared to be equal")
+				}
+				("i32", "")
+			}
+			ASTType::Pointer(_) => {
+				if cmp != "eq" {
+					panic!("Pointers can only be compared to be equal")
+				}
+				("i32", "")
+			}
+			ASTType::String(_) => todo!("String compare needs to be implemented"),
+			ASTType::Class(_) => unreachable!("Cannot compare class types"),
+			ASTType::Array(_) => unreachable!("Cannot compare array types"),
+			ASTType::Template(_) => unreachable!("Cannot compare template types"),
+		};
+
 		format!(
-			"(i32.lt_s {} {})",
-			self.lhs
-				.compile(ctx, &CompiledType::Internal(InternalType::Int32), 0)
-				.expr,
-			self.rhs
-				.compile(ctx, &CompiledType::Internal(InternalType::Int32), 0)
-				.expr
+			"({type_}.{cmp}{signed} {} {})",
+			lhs.compile(ctx, &unused, 0).expr,
+			rhs.compile(ctx, &unused, 0).expr
 		)
 	}
 }
@@ -1252,7 +1290,7 @@ fn compile_function(
 
 	compile_block(
 		ctx,
-		&function,
+		function,
 		&function.body,
 		&mut body,
 		&mut variables,
