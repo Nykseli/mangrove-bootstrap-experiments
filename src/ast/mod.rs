@@ -408,7 +408,7 @@ pub struct ASTIfStmt {
 #[derive(Debug, Clone)]
 pub struct ASTReturn {
 	// TODO: refactor the type name
-	pub expr: ASTAssignmentExpr,
+	pub expr: Option<ASTAssignmentExpr>,
 }
 
 #[derive(Debug, Clone)]
@@ -521,7 +521,9 @@ impl ASTClass {
 						}
 					}
 					ASTBlockStatement::Return(ref mut ret) => {
-						ret.expr.set_tmpl_type(type_.clone());
+						if let Some(ref mut expr) = ret.expr {
+							expr.set_tmpl_type(type_.clone());
+						}
 					}
 					ASTBlockStatement::FunctionCall(_) => todo!(),
 					ASTBlockStatement::IfStmt(_) => todo!(),
