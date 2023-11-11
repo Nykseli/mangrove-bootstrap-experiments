@@ -3,9 +3,10 @@ use std::ops::Deref;
 use crate::ast::{
 	ASTAdd, ASTArrayAccess, ASTArrayInit, ASTArrayType, ASTAssignArg, ASTAssignDottedIdent,
 	ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement, ASTClass,
-	ASTClassInit, ASTClassInitArg, ASTClassMember, ASTEnum, ASTEnumValue, ASTFunction,
-	ASTFunctionCall, ASTFunctionCallArg, ASTIdent, ASTIfStmt, ASTInt32Type, ASTLtStmt, ASTMinus,
-	ASTPointerType, ASTReturn, ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
+	ASTClassInit, ASTClassInitArg, ASTClassMember, ASTConditional, ASTEnum, ASTEnumValue,
+	ASTEqStmt, ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTGeStmt, ASTGtStmt, ASTIdent,
+	ASTIfStmt, ASTInt32Type, ASTLeStmt, ASTLtStmt, ASTMinus, ASTPointerType, ASTReturn,
+	ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
 };
 
 use super::tokeniser::Tokeniser;
@@ -699,27 +700,48 @@ impl Parser {
 	}
 
 	fn parse_if_stmt(&mut self, ctx: &BlockCtx, return_type: Option<&ASTType>) -> ASTIfStmt {
+		// TODO: support dotted idents
 		let value_token = self.skip_white().unwrap();
-		// TODO: poperly figure out the target type
-		let target_type = ASTType::Int32(ASTInt32Type {});
+		let value = ctx.find_variable(value_token.value()).unwrap();
+		let target_type = &value.ast_type;
 		let value = self
-			.parse_value_token(ctx, &target_type, &value_token)
+			.parse_value_token(ctx, target_type, &value_token)
 			.into_left();
 
 		let peek = self.skip_white_peek().unwrap();
 		let conditional = match peek.type_() {
-			TokenType::RelOp if peek.value() == "<" => {
+			TokenType::RelOp => {
 				// Skip the OpToken
 				self.skip_white().unwrap();
 				// get the assignment
 				let rhs = self.skip_white().unwrap();
-				let rhs = self.parse_value_token(ctx, &target_type, &rhs).into_left();
-				ASTLtStmt { lhs: value, rhs }
+				let rhs = self.parse_value_token(ctx, target_type, &rhs).into_left();
+				if peek.value() == "<" {
+					ASTConditional::Lt(ASTLtStmt { lhs: value, rhs })
+				} else if peek.value() == "<=" {
+					ASTConditional::Le(ASTLeStmt { lhs: value, rhs })
+				} else if peek.value() == ">" {
+					ASTConditional::Gt(ASTGtStmt { lhs: value, rhs })
+				} else if peek.value() == ">=" {
+					ASTConditional::Ge(ASTGeStmt { lhs: value, rhs })
+				} else if peek.value() == "==" {
+					ASTConditional::Eq(ASTEqStmt { lhs: value, rhs })
+				} else {
+					panic!("Unknown relop {peek:#?}")
+				}
 			}
-			_ => panic!("I have no idea what's happening"),
+			TokenType::EquOp => {
+				// Skip the OpToken
+				self.skip_white().unwrap();
+				// get the assignment
+				let rhs = self.skip_white().unwrap();
+				let rhs = self.parse_value_token(ctx, target_type, &rhs).into_left();
+				ASTConditional::Eq(ASTEqStmt { lhs: value, rhs })
+			}
+			_ => panic!("I have no idea what's happening {peek:#?}"),
 		};
 
-		let block = self.parse_block(None, return_type);
+		let block = self.parse_block(Some(ctx.variables.clone()), return_type);
 		ASTIfStmt { block, conditional }
 	}
 
