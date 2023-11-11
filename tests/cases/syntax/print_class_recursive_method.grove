@@ -1,0 +1,29 @@
+// Output:
+// 1
+// 2
+// 3
+// 4
+// 5
+
+
+class Foo
+{
+	Int32 val
+
+	function print_values() -> none
+	{
+		Int32 new_val = this.val + 1
+		this.val = new_val
+		__print_int(new_val)
+		__print_char('\n')
+		if new_val < 5 {
+			this.print_values()
+		}
+	}
+}
+
+function main() -> none
+{
+	Foo foo = {val: 0}
+	foo.print_values()
+}
