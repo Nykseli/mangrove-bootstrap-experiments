@@ -3,10 +3,10 @@ use std::ops::Deref;
 use crate::ast::{
 	ASTAdd, ASTArrayAccess, ASTArrayInit, ASTArrayType, ASTAssignArg, ASTAssignDottedIdent,
 	ASTAssignIdent, ASTAssignment, ASTAssignmentExpr, ASTBlock, ASTBlockStatement, ASTClass,
-	ASTClassInit, ASTClassInitArg, ASTClassMember, ASTConditional, ASTEnum, ASTEnumValue,
-	ASTEqStmt, ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTGeStmt, ASTGtStmt, ASTIdent,
-	ASTIfStmt, ASTInt32Type, ASTLeStmt, ASTLtStmt, ASTMinus, ASTPointerType, ASTReturn,
-	ASTStaticAssign, ASTStringType, ASTType, ASTVariable, StaticValue,
+	ASTClassInit, ASTClassInitArg, ASTClassMember, ASTCmpStmt, ASTConditional, ASTEnum,
+	ASTEnumValue, ASTFunction, ASTFunctionCall, ASTFunctionCallArg, ASTIdent, ASTIfStmt,
+	ASTInt32Type, ASTMinus, ASTPointerType, ASTReturn, ASTStaticAssign, ASTStringType, ASTType,
+	ASTVariable, StaticValue,
 };
 
 use super::tokeniser::Tokeniser;
@@ -717,15 +717,15 @@ impl Parser {
 				let rhs = self.skip_white().unwrap();
 				let rhs = self.parse_value_token(ctx, target_type, &rhs).into_left();
 				if peek.value() == "<" {
-					ASTConditional::Lt(ASTLtStmt { lhs: value, rhs })
+					ASTConditional::Lt(ASTCmpStmt { lhs: value, rhs })
 				} else if peek.value() == "<=" {
-					ASTConditional::Le(ASTLeStmt { lhs: value, rhs })
+					ASTConditional::Le(ASTCmpStmt { lhs: value, rhs })
 				} else if peek.value() == ">" {
-					ASTConditional::Gt(ASTGtStmt { lhs: value, rhs })
+					ASTConditional::Gt(ASTCmpStmt { lhs: value, rhs })
 				} else if peek.value() == ">=" {
-					ASTConditional::Ge(ASTGeStmt { lhs: value, rhs })
+					ASTConditional::Ge(ASTCmpStmt { lhs: value, rhs })
 				} else if peek.value() == "==" {
-					ASTConditional::Eq(ASTEqStmt { lhs: value, rhs })
+					ASTConditional::Eq(ASTCmpStmt { lhs: value, rhs })
 				} else {
 					panic!("Unknown relop {peek:#?}")
 				}
@@ -736,7 +736,13 @@ impl Parser {
 				// get the assignment
 				let rhs = self.skip_white().unwrap();
 				let rhs = self.parse_value_token(ctx, target_type, &rhs).into_left();
-				ASTConditional::Eq(ASTEqStmt { lhs: value, rhs })
+				if peek.value() == "==" {
+					ASTConditional::Eq(ASTCmpStmt { lhs: value, rhs })
+				} else if peek.value() == "!=" {
+					ASTConditional::Ne(ASTCmpStmt { lhs: value, rhs })
+				} else {
+					panic!("Unknown relop {peek:#?}")
+				}
 			}
 			_ => panic!("I have no idea what's happening {peek:#?}"),
 		};
