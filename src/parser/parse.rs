@@ -311,6 +311,27 @@ impl Parser {
 							} else {
 								panic!("String doesn't have the member '{}'", dotted.value());
 							}
+						} else if let ASTType::Char = &var.ast_type {
+							if dotted.value() == "as_string" {
+								if !matches!(target_type, ASTType::String(_)) {
+									panic!("Char.as_string is type Char {:#?}", var);
+								}
+								if self.skip_white_peek().unwrap().type_() != TokenType::LeftParen {
+									panic!("Char.as_string is a function call");
+								}
+
+								// Skip left paren
+								self.skip_white().unwrap();
+								let fn_call = self.parse_function_call(
+									Some(var.clone()),
+									dotted.value(),
+									true,
+								);
+
+								return Either::Right(ASTAssignmentExpr::FunctionCall(fn_call));
+							} else {
+								panic!("String doesn't have the member '{}'", dotted.value());
+							}
 						} else {
 							panic!("Only custom type dotted args implemented");
 						}
