@@ -4,15 +4,27 @@
 // 3
 // 4
 // 5
+// 5
+// 6
+// 7
+// 8
+// 9
+// 10
 
 
 class Foo
 {
 	Int32 val
 
-	function print_values() -> none
+	function next_value() -> Int32
 	{
 		Int32 new_val = this.val + 1
+		return new_val
+	}
+
+	function print_values() -> none
+	{
+		Int32 new_val = this.next_value()
 		this.val = new_val
 		__print_int(new_val)
 		__print_char('\n')
@@ -20,10 +32,26 @@ class Foo
 			this.print_values()
 		}
 	}
+
+	function print_values_assignment(Int32 target) -> Int32
+	{
+		__print_int(this.val)
+		__print_char('\n')
+		Int32 cur = this.val
+		if cur >= target {
+			return cur
+		}
+
+		Int32 sum = this.val + 1
+		this.val = sum
+		Int32 next = this.print_values_assignment(target)
+		return next
+	}
 }
 
 function main() -> none
 {
 	Foo foo = {val: 0}
 	foo.print_values()
+	Int32 unused = foo.print_values_assignment(10)
 }
