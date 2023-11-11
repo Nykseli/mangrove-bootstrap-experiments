@@ -1,0 +1,55 @@
+// Output:
+// 1
+// 2
+// 3
+// 4
+
+function print_eq() -> none
+{
+	String val = "123"
+	String empty = ""
+
+	Int32 val1 = 0
+	Int64 val2 = 0
+
+	if val == "123" {
+		val1 = 1
+	}
+
+	if empty == "" {
+		val2 = 2
+	}
+
+	__print_int(val1)
+	__print_char('\n')
+	__print_int64(val2)
+	__print_char('\n')
+}
+
+function print_ne() -> none
+{
+	String val = "123"
+
+	Int32 val1 = 0
+	Int64 val2 = 0
+
+	if val != "123a" {
+		val1 = 3
+	}
+
+	if val != "abc" {
+		val2 = 4
+	}
+
+	__print_int(val1)
+	__print_char('\n')
+	__print_int64(val2)
+	__print_char('\n')
+}
+
+
+function main() -> none
+{
+	print_eq()
+	print_ne()
+}
