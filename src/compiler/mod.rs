@@ -556,30 +556,31 @@ impl ASTConditional {
 			ASTConditional::Gt(stmt) => (&stmt.lhs, &stmt.rhs, "gt"),
 			ASTConditional::Ge(stmt) => (&stmt.lhs, &stmt.rhs, "ge"),
 			ASTConditional::Eq(stmt) => (&stmt.lhs, &stmt.rhs, "eq"),
+			ASTConditional::Ne(stmt) => (&stmt.lhs, &stmt.rhs, "ne"),
 		};
 
 		// Assuming that lhs and rhs are the same
 		let (type_, signed) = match &lhs.ast_type() {
 			ASTType::Int64 => {
-				let t = if cmp != "eq" { "_s" } else { "" };
+				let t = if cmp != "eq" && cmp != "ne" { "_s" } else { "" };
 				("i64", t)
 			}
 			ASTType::Char => {
-				let t = if cmp != "eq" { "_u" } else { "" };
+				let t = if cmp != "eq" && cmp != "ne" { "_u" } else { "" };
 				("i32", t)
 			}
 			ASTType::Int32(_) => {
-				let t = if cmp != "eq" { "_s" } else { "" };
+				let t = if cmp != "eq" && cmp != "ne" { "_s" } else { "" };
 				("i32", t)
 			}
 			ASTType::Enum(_) => {
-				if cmp != "eq" {
+				if cmp != "eq" && cmp != "ne" {
 					panic!("Enums can only be compared to be equal")
 				}
 				("i32", "")
 			}
 			ASTType::Pointer(_) => {
-				if cmp != "eq" {
+				if cmp != "eq" && cmp != "ne" {
 					panic!("Pointers can only be compared to be equal")
 				}
 				("i32", "")
