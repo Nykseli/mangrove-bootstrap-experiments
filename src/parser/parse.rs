@@ -940,7 +940,8 @@ impl Parser {
 		}
 
 		// TODO: args should be the same as variables
-		let mut args: Vec<ASTVariable> = if let Some(this) = this {
+		let has_this = this.is_some();
+		let mut args = if let Some(this) = this {
 			vec![this]
 		} else {
 			Vec::new()
@@ -992,6 +993,21 @@ impl Parser {
 			(_, TokenType::NoneType) => None,
 			_ => panic!("Didn't expect {return_type:#?}"),
 		};
+
+		// Hacky recursion on recursive method call assignemnts
+		if has_this {
+			if let ASTType::Class(ref mut cls) = &mut variables[0].ast_type {
+				cls.methods.push(ASTFunction::new(
+					name.into(),
+					args.clone(),
+					ASTBlock {
+						variables: Vec::new(),
+						statements: Vec::new(),
+					},
+					returns.clone(),
+				))
+			}
+		}
 
 		let body = self.parse_block(Some(variables), returns.as_ref());
 
