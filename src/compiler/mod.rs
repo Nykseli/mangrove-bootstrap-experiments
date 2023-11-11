@@ -585,7 +585,21 @@ impl ASTConditional {
 				}
 				("i32", "")
 			}
-			ASTType::String(_) => todo!("String compare needs to be implemented"),
+			ASTType::String(_) => {
+				let eq = if cmp == "eq" {
+					"(i32.const 1)"
+				} else if cmp == "ne" {
+					"(i32.const 0)"
+				} else {
+					panic!("Strings can only be compared to be equal {self:#?}")
+				};
+
+				return format!(
+					"(i32.eq (call $__string_cmp {} {}) {eq})",
+					lhs.compile(ctx, &unused, 0).expr,
+					rhs.compile(ctx, &unused, 0).expr
+				);
+			}
 			ASTType::Class(_) => unreachable!("Cannot compare class types"),
 			ASTType::Array(_) => unreachable!("Cannot compare array types"),
 			ASTType::Template(_) => unreachable!("Cannot compare template types"),
@@ -1204,7 +1218,7 @@ fn compile_block(
 				);
 
 				body.push_str(&format!(
-					"(if {} (then {}))\n",
+					"(if {}\n(then {}))\n",
 					stmt.conditional.compile(ctx),
 					inner_stmts
 				))
@@ -1386,6 +1400,7 @@ impl Compiler {
 			(import \"internals\" \"__mem_n_copy\" (func $__mem_n_copy (param i32) (param i32) (param i32)))
 			(import \"internals\" \"__string_concat\" (func $__string_concat (param i32) (param i32) (result i32)))
 			(import \"internals\" \"__string_concat2\" (func $__string_concat2 (param i64) (param i64) (result i64)))
+			(import \"internals\" \"__string_cmp\" (func $__string_cmp (param i64) (param i64) (result i32)))
 			(import \"internals\" \"__print_str\" (func $__print_str (param i64)))
 			(import \"internals\" \"__print_str_ptr\" (func $__print_str_ptr (param i32)))
 			(import \"internals\" \"__exit\" (func $__exit (param i32)))
