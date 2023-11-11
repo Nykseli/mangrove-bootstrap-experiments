@@ -29,3 +29,8 @@ EOL
 cargo run main.grove > main.wat
 wasmtime --preload internals=asm/wasm/internals.wat --preload main=main.wat asm/wasm/run.wat
 ```
+
+If you have wasmtime in your `PATH`, you can run the boostrap with:
+```sh
+./run_bootstrap.sh
+```
