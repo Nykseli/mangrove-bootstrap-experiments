@@ -798,6 +798,24 @@ impl ASTCompile<CompiledType> for ASTAssignmentExpr {
 							}];
 						}
 					}
+					Some(var) if matches!(var.ast_type, ASTType::Char) => {
+						if func.name == "as_string" {
+							assert!(
+								func.args.len() == 0,
+								"Char.as_string has exactly one argument"
+							);
+							// get the variable pointer
+							let expr = format!(
+								"(call $__char_to_string (get_local ${}))",
+								var.ident.ident()
+							);
+							return vec![InitExpression {
+								expr,
+								offset,
+								is32b: false,
+							}];
+						}
+					}
 					_ => (),
 				}
 
@@ -1401,6 +1419,7 @@ impl Compiler {
 			(import \"internals\" \"__string_concat\" (func $__string_concat (param i32) (param i32) (result i32)))
 			(import \"internals\" \"__string_concat2\" (func $__string_concat2 (param i64) (param i64) (result i64)))
 			(import \"internals\" \"__string_cmp\" (func $__string_cmp (param i64) (param i64) (result i32)))
+			(import \"internals\" \"__char_to_string\" (func $__char_to_string (param i32) (result i64)))
 			(import \"internals\" \"__print_str\" (func $__print_str (param i64)))
 			(import \"internals\" \"__print_str_ptr\" (func $__print_str_ptr (param i32)))
 			(import \"internals\" \"__exit\" (func $__exit (param i32)))
