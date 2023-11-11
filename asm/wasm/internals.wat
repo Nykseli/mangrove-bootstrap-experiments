@@ -398,6 +398,56 @@
 	)
 	(export "__string_concat2" (func $__string_concat2))
 
+	;; String compare
+	;; return 1 if equal, 0 if not
+	(func $__string_cmp (param i64) (param i64) (result i32)
+		(local $size1 i32)
+		(local $size2 i32)
+		;; String address pointers
+		(local $strp1 i32)
+		(local $strp2 i32)
+		;; current index to strings
+		(local $idx i32)
+		;; Sizes are low i32 bits
+		(set_local $size1 (i32.wrap_i64 (i64.shr_u (local.get 0) (i64.const 32))))
+		(set_local $size2 (i32.wrap_i64 (i64.shr_u (local.get 1) (i64.const 32))))
+
+		;; If the lenghts are not equal, strings cannot be equal
+		(if (i32.ne (get_local $size1) (get_local $size2))
+			(then (return i32.const 0))
+		)
+
+		;; If both lenghts are 0, the strings are empty and therefore equal
+		(if (i32.eqz (i32.add (get_local $size1) (get_local $size2)))
+			(then (return i32.const 1))
+		)
+
+		;; ptrs are high i32 bits
+		(set_local $strp1 (i32.wrap_i64 (local.get 0)))
+		(set_local $strp2 (i32.wrap_i64 (local.get 1)))
+		(set_local $idx (i32.const 0))
+
+		(loop $compare
+			;; Compare the strings, one byte at a time
+			;; returning zero if the bytes are not equal
+			(if
+				(i32.ne
+					(i32.load8_u (i32.add (get_local $strp1) (get_local $idx)))
+					(i32.load8_u (i32.add (get_local $strp2) (get_local $idx)))
+				)
+				(then (return (i32.const 0)))
+			)
+
+			;; go to the next index
+			(set_local $idx (i32.add (get_local $idx) (i32.const 1)))
+			;; Continue loop if there's still characters left
+			(br_if $compare (i32.lt_s (get_local $idx) (get_local $size1)))
+		)
+		;; All characters were successfully compared so we can just return 1
+		(i32.const 1)
+	)
+	(export "__string_cmp" (func $__string_cmp))
+
 	;; Stack operations reserve 128-159 bytes (32 bytes)
 	;; 128-131 stores the current stack ptr
 	(func $__get_stack_ptr (result i32)
