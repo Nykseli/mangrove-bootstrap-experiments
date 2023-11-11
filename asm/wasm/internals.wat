@@ -398,6 +398,25 @@
 	)
 	(export "__string_concat2" (func $__string_concat2))
 
+	;; Create a heap allocated string out of a single character
+	(func $__char_to_string (param i32) (result i64)
+		(local $new_ptr i32)
+		(local $new_string i64)
+
+		;; TODO: only allocate new string if there's no room for the extra character
+		;; Allocate new string and get the addr pointer to it
+		(set_local $new_ptr (call $__allocate_bytes (i32.const 1)))
+		;; Copy the character to the new pointer
+		(i32.store8 (get_local $new_ptr) (local.get 0))
+
+		;; size << 32 | ptr
+		(set_local $new_string (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32)))
+		(set_local $new_string (i64.xor (i64.extend_i32_u (get_local $new_ptr)) (get_local $new_string)))
+
+		(get_local $new_string)
+	)
+	(export "__char_to_string" (func $__char_to_string))
+
 	;; String compare
 	;; return 1 if equal, 0 if not
 	(func $__string_cmp (param i64) (param i64) (result i32)
