@@ -10,6 +10,9 @@
 // 9
 // 10
 // 11
+// 12
+// 13
+// 14
 
 
 enum FooEnum {
@@ -122,6 +125,35 @@ function print_eq() -> none
 	__print_char('\n')
 }
 
+function print_ne() -> none
+{
+	FooEnum fe = FooEnum.Val1
+	FooEnum fe2 = FooEnum.Val
+
+	Int32 vale = 1
+	Int32 val = 1
+	Int64 val2 = 1
+
+	if fe != fe2 {
+		vale = 12
+	}
+
+	if val != 0 {
+		val = 13
+	}
+
+	if val2 != 0 {
+		val2 = 14
+	}
+
+	__print_int(vale)
+	__print_char('\n')
+	__print_int(val)
+	__print_char('\n')
+	__print_int64(val2)
+	__print_char('\n')
+}
+
 
 function main() -> none
 {
@@ -130,4 +162,5 @@ function main() -> none
 	print_gt()
 	print_ge()
 	print_eq()
+	print_ne()
 }
