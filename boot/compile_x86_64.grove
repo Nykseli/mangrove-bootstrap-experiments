@@ -1,0 +1,194 @@
+function panic_exit(String arg) -> none
+{
+	__print_str(arg)
+	__exit(1)
+}
+
+enum TokenType {
+	None
+	FunctionLit
+	StringLit
+	LeftParen
+	RightParen
+	LeftBrace
+	RightBrace
+	Ident
+	Whitespace
+}
+
+class Token {
+	TokenType type
+	String value
+
+	function print() -> none {
+		TokenType type = this.type
+		String value = this.value
+
+		__print_str("Token type: ")
+		TokenType cmp = TokenType.None
+		if type == cmp {
+			__print_str("None")
+		}
+		cmp = TokenType.FunctionLit
+		if type == cmp {
+			__print_str("FunctionLit")
+		}
+		cmp = TokenType.StringLit
+		if type == cmp {
+			__print_str("StringLit")
+		}
+		cmp = TokenType.LeftParen
+		if type == cmp {
+			__print_str("LeftParen")
+		}
+		cmp = TokenType.RightParen
+		if type == cmp {
+			__print_str("RightParen")
+		}
+		cmp = TokenType.LeftBrace
+		if type == cmp {
+			__print_str("LeftBrace")
+		}
+		cmp = TokenType.RightBrace
+		if type == cmp {
+			__print_str("RightBrace")
+		}
+		cmp = TokenType.Ident
+		if type == cmp {
+			__print_str("Ident")
+		}
+		cmp = TokenType.Whitespace
+		if type == cmp {
+			__print_str("Whitespace")
+		}
+		__print_char('\n')
+
+		__print_str("Token value: ")
+		__print_str(value)
+		__print_char('\n')
+	}
+}
+
+class Tokeniser
+{
+	String file
+	Int32 read_pos
+	Char current_char
+
+	function next_char() -> Char
+	{
+		Int32 next_pos = this.read_pos + 1
+		String ref = this.file
+		Int32 file_len = ref.length
+		if next_pos >= file_len {
+			__print_int(next_pos)
+			__print_char('\n')
+			__print_int(file_len)
+			__print_char('\n')
+			panic_exit("Cannot find next character\n")
+		}
+
+		Char next = ref.get(this.read_pos)
+		this.read_pos = next_pos
+		this.current_char = next
+		return next
+	}
+
+	function skip_white() -> none
+	{
+		Char curr = this.current_char
+		if curr == ' ' {
+			curr = this.next_char()
+			this.current_char = curr
+			this.skip_white()
+		}
+	}
+
+	function _read_until_white(String res) -> String
+	{
+		Char next = this.next_char()
+		if next == ' ' {
+			return res
+		}
+
+		if next == '\n' {
+			return res
+		}
+
+		String next_str = next.as_string()
+		res = res + next_str
+		res = this._read_until_white(res)
+		return res
+	}
+
+	function read_until_white() -> String
+	{
+		Char curr = this.current_char
+		String res = curr.as_string()
+		return this._read_until_white(res)
+	}
+
+	function next_token(Token token) -> none
+	{
+		this.skip_white()
+		String val = ""
+		TokenType type = TokenType.None
+		Int32 tmp = 0
+
+		Char cur_char = this.current_char
+		if cur_char == '(' {
+			type = TokenType.LeftParen
+		}
+		if cur_char == ')' {
+			type = TokenType.RightParen
+		}
+		if cur_char == '{' {
+			type = TokenType.LeftBrace
+		}
+		if cur_char == '}' {
+			type = TokenType.RightBrace
+		}
+
+		if type != TokenType.None {
+			token.type = type
+			val = cur_char.as_string()
+			token.value = val
+			cur_char = this.next_char()
+			return
+		}
+
+		if cur_char == '"' {
+			panic_exit("Cannot read strings yet")
+		}
+
+		type = TokenType.Ident
+		val = this.read_until_white()
+		if val == "function" {
+			type = TokenType.FunctionLit
+		}
+
+		token.type = type
+		token.value = val
+		return
+	}
+}
+
+/* this will fail if the file string doesn't have two empty spaces at the end for some reason */
+function main() -> none
+{
+	Tokeniser tok = { file: "function main () {}  ", read_pos: 0, current_char: ' '}
+	Token token = {type: TokenType.None, value: ""}
+
+	tok.next_token(token)
+	token.print()
+	tok.next_token(token)
+	token.print()
+	tok.next_token(token)
+	token.print()
+	tok.next_token(token)
+	token.print()
+	tok.next_token(token)
+	token.print()
+	tok.next_token(token)
+	token.print()
+}
