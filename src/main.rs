@@ -2,7 +2,8 @@ use clap::Parser as _;
 
 mod cli;
 
-use mangrove_rs::compiler::Compiler;
+use mangrove_rs::compiler::common::Compiler;
+use mangrove_rs::compiler::wasm::WasmCompiler;
 use mangrove_rs::optimiser::Optimiser;
 use mangrove_rs::parser::{parse::Parser, tokeniser::Tokeniser};
 
@@ -16,6 +17,6 @@ fn main() {
 		optimiser.optimise();
 		parser = optimiser.parser;
 	}
-	let mut compiler = Compiler::new(parser);
+	let mut compiler = Compiler::<WasmCompiler>::new(parser);
 	println!("{}", compiler.compile());
 }

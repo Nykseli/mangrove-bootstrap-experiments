@@ -4,6 +4,7 @@ use crate::{
 		ASTClass, ASTClassInit, ASTConditional, ASTEnum, ASTFunction, ASTFunctionCallArg, ASTIdent,
 		ASTType, StaticValue,
 	},
+	compiler::common::ArchCompiler,
 	parser::parse::Parser,
 };
 
@@ -1350,16 +1351,16 @@ fn compile_function(
 }
 
 #[derive(Debug)]
-pub struct Compiler {
+pub struct WasmCompiler {
 	ast: Parser,
 }
 
-impl Compiler {
-	pub fn new(ast: Parser) -> Self {
+impl ArchCompiler for WasmCompiler {
+	fn new(ast: Parser) -> Self {
 		Self { ast }
 	}
 
-	pub fn compile(&mut self) -> String {
+	fn compile(&mut self) -> String {
 		let mut instructions = String::new();
 		let mut ctx = CompileCtx {
 			vars: Vec::new(),
