@@ -21,11 +21,8 @@ cd ..
 # Always make we have the latest version of the software
 cargo build --release
 
-WASM_PATH=$(which wasmtime || printf "")
-if [ -z "$WASM_PATH" ]; then
-	echo "Couldn't find wasmtime from PATH"
-	exit 1
-fi
+SYNTAX_ROOT="tests/cases/syntax/"
+GROVE_FILES=($(find $SYNTAX_ROOT -name "*.grove" -not -name "fixme_*"))
 
 check_output() {
 	RUN_OUT="$1"
@@ -43,7 +40,7 @@ check_output() {
 	fi
 }
 
-test_file() {
+test_wasm_file() {
 	FILE=$1
 	WAT_PATH=$(echo $FILE | sed 's/\.grove/\.wat/')
 	WAT_OPATH=$(echo $FILE | sed 's/\.grove/_opt\.wat/')
@@ -73,16 +70,95 @@ test_file() {
 	# check_output "$RUN_OUT" "$OUTPUT_LINES"
 }
 
-if [[ ! -z "$1" ]]; then
-	test_file $1
-	exit 0
-fi
+test_wasm() {
+	WASM_PATH=$(which wasmtime || printf "")
+	if [ -z "$WASM_PATH" ]; then
+		echo "Couldn't find wasmtime from PATH"
+		exit 1
+	fi
+
+	if [[ ! -z "$1" ]]; then
+		test_wasm_file $1
+		exit 0
+	fi
+
+	for FILE in "${GROVE_FILES[@]}"
+	do
+		test_wasm_file $FILE
+	done
+}
+
+test_riscv_file() {
+	FILE=$1
+	BIN_PATH="${FILE//\.grove/\.bin}"
+	FIRST_LINE=$(awk 'NR==1{print $0}' $FILE)
+
+	echo testing file $FILE
+
+	if [[ "$FIRST_LINE" != "// Output:" ]]; then
+		echo First line is not starting with output, skipping.
+		return
+	fi
+
+	# Capture lines after output until a empty line occurs
+	OUTPUT_LINES=$(awk 'NR==2,/^$/' $FILE | sed 's/\/\/ //')
+
+	printf "testing output... "
+	if [[ ! -f $BIN_PATH ]]; then
+		printf "${RED}Failed${NC} (file not compiled)\n"
+	else
+		RUN_OUT=$($BIN_PATH || printf "")
+		check_output "$RUN_OUT" "$OUTPUT_LINES"
+	fi
+}
+
+test_riscv() {
+	if [[ ! -z "$1" ]]; then
+		./run_riscv.sh $1
+		make -f Makefile.riscv tests || true
+		test_riscv_file $1
+		exit 0
+	else
+		for FILE in "${GROVE_FILES[@]}"; do
+			S_PATH="${FILE//\.grove/\.s}"
+			echo compiling file $FILE
+			./run_riscv.sh $FILE &> /dev/null || rm $S_PATH
+		done
+		make -f Makefile.riscv tests || true
+		for FILE in "${GROVE_FILES[@]}"; do
+			test_riscv_file $FILE
+		done
+	fi
+}
 
 
-SYNTAX_ROOT="tests/cases/syntax/"
-GROVE_FILES=($(find $SYNTAX_ROOT -name "*.grove" -not -name "fixme_*"))
+ARCH="wasm"
+POSITIONAL_ARGS=()
 
-for FILE in "${GROVE_FILES[@]}"
-do
-	test_file $FILE
+while [[ $# -gt 0 ]]; do
+	case $1 in
+		-a|--arch)
+			ARCH="$2"
+			shift
+			shift
+			;;
+		-*|--*)
+			echo "Unknown option $1"
+			exit 1
+			;;
+		*)
+			POSITIONAL_ARGS+=("$1")
+			shift
+			;;
+	esac
 done
+
+set -- "${POSITIONAL_ARGS[@]}"
+
+if [[ "$ARCH" == "wasm" ]]; then
+	test_wasm $1
+elif [[ "$ARCH" == "riscv" ]]; then
+	test_riscv $1
+else
+	echo unknown arch "\"$ARCH\""
+fi
