@@ -1,0 +1,19 @@
+INTERNAL_ASM_SOURCES = $(wildcard asm/riscv/*.s)
+INTERNAL_OBJ_FILES = ${INTERNAL_ASM_SOURCES:.s=.o}
+TEST_ASM_SOURCES = $(wildcard tests/cases/syntax/*.s)
+TEST_OBJ_FILES = ${TEST_ASM_SOURCES:.s=.o}
+TEST_BIN_FILES = ${TEST_OBJ_FILES:.o=.bin}
+
+all: ${INTERNAL_OBJ_FILES}
+	@ echo compile done
+
+tests: ${INTERNAL_OBJ_FILES} ${TEST_OBJ_FILES} ${TEST_BIN_FILES}
+	@ echo test compile done
+
+%.o: %.s
+	as -g -o $@ $<
+
+%.bin: %.o
+	ld -o $@ $< ${INTERNAL_OBJ_FILES}
+
+
