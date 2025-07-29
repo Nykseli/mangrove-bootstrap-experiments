@@ -4,7 +4,7 @@ use crate::{
 		ASTClass, ASTClassInit, ASTConditional, ASTEnum, ASTFunction, ASTFunctionCallArg, ASTIdent,
 		ASTType, StaticValue,
 	},
-	compiler::common::ArchCompiler,
+	compiler::common::Compiler,
 	parser::parse::Parser,
 };
 
@@ -1355,7 +1355,7 @@ pub struct WasmCompiler {
 	ast: Parser,
 }
 
-impl ArchCompiler for WasmCompiler {
+impl Compiler for WasmCompiler {
 	fn new(ast: Parser) -> Self {
 		Self { ast }
 	}
