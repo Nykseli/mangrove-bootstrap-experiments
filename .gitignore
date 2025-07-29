@@ -1,3 +1,7 @@
 /target
 /tests/cases/syntax/*.wat
+/tests/cases/syntax/*.s
+/tests/cases/syntax/*.o
+/tests/cases/syntax/*.bin
 /wasm
+/asm/riscv/*.o
