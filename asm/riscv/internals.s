@@ -14,4 +14,19 @@ __print_str:
 
 	ret
 
+.global __print_char
+__print_char:
+	addi sp, sp, -32  # allocate space on stack
+	sd   ra, 24(sp)   # save return address onto stack
+	addi t0, sp, 32   # save start of stack pointer to t0
 
+	# create a char s[1] = {arg0}
+	sb   a0, -16(t0)  # load the first byte of the argument to stack
+	add  a0, t0, -16  # point arg to the stack
+	addi a1, zero, 1  # add the length argument
+	call __print_str
+
+	ld   ra, 24(sp)   # load return address from stack
+	addi sp, sp, 32   # restore stack pointer
+
+	ret
