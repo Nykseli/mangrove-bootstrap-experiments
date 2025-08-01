@@ -4,12 +4,13 @@ use crate::{
 	ast::{ASTBlockStatement, ASTFunction, ASTFunctionCallArg},
 	compiler::{
 		common::Compiler,
-		riscv::{instr::Instruction, register::Register},
+		riscv::{instr::Instruction, internal::compile_internal_function_call, register::Register},
 	},
 	parser::parse::Parser,
 };
 
 mod instr;
+mod internal;
 mod register;
 
 #[derive(Debug)]
@@ -67,27 +68,13 @@ fn compile_function(ctx: &mut CompileCtx, function: &ASTFunction) -> CompiledFn 
 		match statement {
 			// TODO: handle internal function special cases
 			ASTBlockStatement::FunctionCall(astfunction_call) => {
-				for val in &astfunction_call.args {
-					match val {
-						ASTFunctionCallArg::String(string) => {
-							let data_label = ctx.add_static_string(string);
-							let instr1 = Instruction::La {
-								dest: Register::A0,
-								label: data_label,
-							};
-							body_isntr.push(instr1);
-							let instr2 = Instruction::Addi {
-								dst: Register::A1,
-								src: Register::Zero,
-								imm: string.len() as i32,
-							};
-							body_isntr.push(instr2);
-						}
-						_ => todo!("TODO: function argument\n{:#?}", val),
-					};
+				if astfunction_call.name.starts_with("__") {
+					let isntrs = compile_internal_function_call(ctx, astfunction_call).unwrap();
+					body_isntr.extend(isntrs);
+					continue;
 				}
-				let call = Instruction::Call(astfunction_call.name.clone());
-				body_isntr.push(call);
+
+				todo!("Only internal functions are implemented")
 			}
 			_ => todo!("TODO: function statement\n{:#?}", statement),
 		}
