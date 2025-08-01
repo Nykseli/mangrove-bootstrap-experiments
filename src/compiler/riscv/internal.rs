@@ -7,9 +7,42 @@ const INTERNAL_FUNCTIONS: &'static [(
 	&'static str,
 	fn(&mut CompileCtx, &ASTFunctionCall) -> Result<Vec<Instruction>, String>,
 )] = &[
+	("__print_int", compile_print_int),
 	("__print_str", compile_print_str),
 	("__print_char", compile_print_char),
 ];
+
+fn compile_print_int(
+	_ctx: &mut CompileCtx,
+	function_call: &ASTFunctionCall,
+) -> Result<Vec<Instruction>, String> {
+	if function_call.args.len() != 1 {
+		return Err(format!(
+			"Internal function '{}' expects exactly one argument.",
+			function_call.name
+		));
+	}
+
+	match &function_call.args[0] {
+		ASTFunctionCallArg::Int32(int) => {
+			let mut fn_instrs = Vec::new();
+			let instr1 = Instruction::Addi {
+				dst: Register::A0,
+				src: Register::Zero,
+				imm: *int,
+			};
+			fn_instrs.push(instr1);
+			fn_instrs.push(Instruction::Call(function_call.name.clone()));
+			Ok(fn_instrs)
+		}
+		_ => {
+			return Err(format!(
+				"Internal function '{}' only accepts static int32 as an argument.",
+				function_call.name
+			))
+		}
+	}
+}
 
 fn compile_print_str(
 	ctx: &mut CompileCtx,
