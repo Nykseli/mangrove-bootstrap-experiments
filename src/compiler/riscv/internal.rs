@@ -3,10 +3,13 @@ use crate::{
 	compiler::riscv::{instr::Instruction, register::Register, CompileCtx},
 };
 
-const INTERNAL_FUNCTIONS: [(
+const INTERNAL_FUNCTIONS: &'static [(
 	&'static str,
 	fn(&mut CompileCtx, &ASTFunctionCall) -> Result<Vec<Instruction>, String>,
-); 1] = [("__print_str", compile_print_str)];
+)] = &[
+	("__print_str", compile_print_str),
+	("__print_char", compile_print_char),
+];
 
 fn compile_print_str(
 	ctx: &mut CompileCtx,
@@ -40,6 +43,38 @@ fn compile_print_str(
 		_ => {
 			return Err(format!(
 				"Internal function '{}' only accepts static strings as an argument.",
+				function_call.name
+			))
+		}
+	}
+}
+
+fn compile_print_char(
+	_ctx: &mut CompileCtx,
+	function_call: &ASTFunctionCall,
+) -> Result<Vec<Instruction>, String> {
+	if function_call.args.len() != 1 {
+		return Err(format!(
+			"Internal function '{}' expects exactly one argument.",
+			function_call.name
+		));
+	}
+
+	match &function_call.args[0] {
+		ASTFunctionCallArg::Char(ch) => {
+			let mut fn_instrs = Vec::new();
+			let instr1 = Instruction::Addi {
+				dst: Register::A1,
+				src: Register::Zero,
+				imm: *ch as i32,
+			};
+			fn_instrs.push(instr1);
+			fn_instrs.push(Instruction::Call(function_call.name.clone()));
+			Ok(fn_instrs)
+		}
+		_ => {
+			return Err(format!(
+				"Internal function '{}' only accepts static char as an argument.",
 				function_call.name
 			))
 		}
