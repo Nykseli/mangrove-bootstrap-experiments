@@ -97,7 +97,7 @@ fn compile_print_char(
 		ASTFunctionCallArg::Char(ch) => {
 			let mut fn_instrs = Vec::new();
 			let instr1 = Instruction::Addi {
-				dst: Register::A1,
+				dst: Register::A0,
 				src: Register::Zero,
 				imm: *ch as i32,
 			};
