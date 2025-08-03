@@ -74,7 +74,7 @@ fn compile_function(ctx: &mut CompileCtx, function: &ASTFunction) -> CompiledFn 
 					continue;
 				}
 
-				todo!("Only internal functions are implemented")
+				body_isntr.push(Instruction::Call(astfunction_call.name.clone()));
 			}
 			_ => todo!("TODO: function statement\n{:#?}", statement),
 		}
