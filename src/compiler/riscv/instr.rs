@@ -27,6 +27,14 @@ pub enum Instruction {
 	/// TODO: find documentation from spec
 	/// Pseudo instruction for loading a symbol
 	La { dest: Register, label: String },
+	/// 4.3. Load and Store Instructions and 34.5.1. lb
+	/// The Lb instruction loads a 8-bit value from memory into register rd for RV64I
+	/// 8 bit version of lw instruction
+	Lb {
+		dest: Register,
+		base: Register,
+		offset: i32,
+	},
 	/// 4.3. Load and Store Instructions and 34.5.1. ld
 	/// The LD instruction loads a 64-bit value from memory into register rd for RV64I
 	/// 64 bit version of lw instruction
@@ -38,6 +46,14 @@ pub enum Instruction {
 	/// TODO: find documentation from spec
 	/// pseudo instruction for returning from function
 	Ret,
+	/// 4.3. Load and Store Instructions and 34.5.2. sb
+	/// The Sb, instructions store 8-bit value from the low bits of register src to memory.
+	/// SD, SW, and SH are 64, 32, and 16 bit versions of this
+	Sb {
+		src: Register,
+		base: Register,
+		offset: i32,
+	},
 	/// 4.3. Load and Store Instructions and 34.5.2. sd
 	/// The SD, instructions store 64-bit value from the low bits of register src to memory.
 	/// SW, SH, and SB are 32, 16, and 8 bit versions of this
@@ -54,8 +70,10 @@ impl Display for Instruction {
 			Instruction::Addi { dst, src, imm } => write!(f, "addi {dst}, {src}, {imm}")?,
 			Instruction::Call(label) => write!(f, "call {label}")?,
 			Instruction::La { dest, label } => write!(f, "la {dest}, {label}")?,
+			Instruction::Lb { dest, base, offset } => write!(f, "lb {dest}, {offset}({base})")?,
 			Instruction::Ld { dest, base, offset } => write!(f, "ld {dest}, {offset}({base})")?,
 			Instruction::Ret => write!(f, "ret")?,
+			Instruction::Sb { src, base, offset } => write!(f, "sb {src}, {offset}({base})")?,
 			Instruction::Sd { src, base, offset } => write!(f, "sd {src}, {offset}({base})")?,
 		}
 		Ok(())

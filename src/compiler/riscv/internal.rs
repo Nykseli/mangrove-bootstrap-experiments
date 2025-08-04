@@ -1,6 +1,6 @@
 use crate::{
 	ast::{ASTFunctionCall, ASTFunctionCallArg},
-	compiler::riscv::{instr::Instruction, register::Register, CompileCtx},
+	compiler::riscv::{instr::Instruction, register::Register, CompileCtx, CompiledType},
 };
 
 const INTERNAL_FUNCTIONS: &'static [(
@@ -191,7 +191,7 @@ fn compile_print_str(
 }
 
 fn compile_print_char(
-	_ctx: &mut CompileCtx,
+	ctx: &mut CompileCtx,
 	function_call: &ASTFunctionCall,
 ) -> Result<Vec<Instruction>, String> {
 	if function_call.args.len() != 1 {
@@ -208,6 +208,22 @@ fn compile_print_char(
 				dst: Register::A0,
 				src: Register::Zero,
 				imm: *ch as i32,
+			};
+			fn_instrs.push(instr1);
+			fn_instrs.push(Instruction::Call(function_call.name.clone()));
+			Ok(fn_instrs)
+		}
+		ASTFunctionCallArg::Ident(idnt) => {
+			let var = ctx.compiled_variable(&idnt)?;
+			if !matches!(var.type_, CompiledType::Char) {
+				return Err(format!("Ident '{idnt}' is not a type of Char"));
+			}
+
+			let mut fn_instrs = Vec::new();
+			let instr1 = Instruction::Lb {
+				dest: Register::A0,
+				base: Register::Sp,
+				offset: var.offset as i32,
 			};
 			fn_instrs.push(instr1);
 			fn_instrs.push(Instruction::Call(function_call.name.clone()));
