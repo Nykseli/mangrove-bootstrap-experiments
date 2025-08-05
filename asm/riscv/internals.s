@@ -85,3 +85,15 @@ ___print_int_end:
 	addi sp, sp, 32   # restore stack pointer
 
 	ret
+
+# print 64 bit value
+.global __print_int64
+__print_int64:
+	addi sp, sp, -32  # allocate space on stack
+	sd   ra, 24(sp)   # save return address onto stack
+
+	call __print_int
+
+	ld   ra, 24(sp)   # load return address from stack
+	addi sp, sp, 32   # restore stack pointer
+	ret
