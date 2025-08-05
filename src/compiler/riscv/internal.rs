@@ -8,6 +8,7 @@ const INTERNAL_FUNCTIONS: &'static [(
 	fn(&mut CompileCtx, &ASTFunctionCall) -> Result<Vec<Instruction>, String>,
 )] = &[
 	("__print_int", compile_print_int),
+	("__print_int64", compile_print_int64),
 	("__print_str", compile_print_str),
 	("__print_char", compile_print_char),
 	("__print_format", compile_print_format),
@@ -121,7 +122,7 @@ fn compile_print_format(
 }
 
 fn compile_print_int(
-	_ctx: &mut CompileCtx,
+	ctx: &mut CompileCtx,
 	function_call: &ASTFunctionCall,
 ) -> Result<Vec<Instruction>, String> {
 	if function_call.args.len() != 1 {
@@ -143,9 +144,73 @@ fn compile_print_int(
 			fn_instrs.push(Instruction::Call(function_call.name.clone()));
 			Ok(fn_instrs)
 		}
+		ASTFunctionCallArg::Ident(idnt) => {
+			let var = ctx.compiled_variable(&idnt)?;
+			if !matches!(var.type_, CompiledType::Int32) {
+				return Err(format!("Ident '{idnt}' is not a type of Int32"));
+			}
+
+			let mut fn_instrs = Vec::new();
+			let instr1 = Instruction::Lw {
+				dest: Register::A0,
+				base: Register::Sp,
+				offset: var.offset as i32,
+			};
+			fn_instrs.push(instr1);
+			fn_instrs.push(Instruction::Call(function_call.name.clone()));
+			Ok(fn_instrs)
+		}
 		_ => {
 			return Err(format!(
 				"Internal function '{}' only accepts static int32 as an argument.",
+				function_call.name
+			))
+		}
+	}
+}
+
+fn compile_print_int64(
+	ctx: &mut CompileCtx,
+	function_call: &ASTFunctionCall,
+) -> Result<Vec<Instruction>, String> {
+	if function_call.args.len() != 1 {
+		return Err(format!(
+			"Internal function '{}' expects exactly one argument.",
+			function_call.name
+		));
+	}
+
+	match &function_call.args[0] {
+		ASTFunctionCallArg::Int64(int) => {
+			let mut fn_instrs = Vec::new();
+			let instr1 = Instruction::Addi {
+				dst: Register::A0,
+				src: Register::Zero,
+				imm: (*int) as i32,
+			};
+			fn_instrs.push(instr1);
+			fn_instrs.push(Instruction::Call(function_call.name.clone()));
+			Ok(fn_instrs)
+		}
+		ASTFunctionCallArg::Ident(idnt) => {
+			let var = ctx.compiled_variable(&idnt)?;
+			if !matches!(var.type_, CompiledType::Int64) {
+				return Err(format!("Ident '{idnt}' is not a type of Int64"));
+			}
+
+			let mut fn_instrs = Vec::new();
+			let instr1 = Instruction::Ld {
+				dest: Register::A0,
+				base: Register::Sp,
+				offset: var.offset as i32,
+			};
+			fn_instrs.push(instr1);
+			fn_instrs.push(Instruction::Call(function_call.name.clone()));
+			Ok(fn_instrs)
+		}
+		_ => {
+			return Err(format!(
+				"Internal function '{}' only accepts static Int64 as an argument.",
 				function_call.name
 			))
 		}

@@ -41,8 +41,12 @@ enum StaticData {
 
 #[derive(Debug, Clone)]
 enum CompiledType {
-	// Internal character type
+	/// Internal character type
 	Char,
+	/// Signed 32 bit integer
+	Int32,
+	/// Signed 64 bit integer
+	Int64,
 }
 
 impl CompiledType {
@@ -50,6 +54,8 @@ impl CompiledType {
 	fn size(&self) -> u32 {
 		match self {
 			CompiledType::Char => 1,
+			CompiledType::Int32 => 4,
+			CompiledType::Int64 => 8,
 		}
 	}
 }
@@ -60,6 +66,8 @@ impl TryFrom<&ASTType> for CompiledType {
 	fn try_from(value: &ASTType) -> Result<Self, Self::Error> {
 		match value {
 			ASTType::Char => Ok(Self::Char),
+			ASTType::Int64 => Ok(Self::Int64),
+			ASTType::Int32(_) => Ok(Self::Int32),
 			_ => Err(format!(
 				"Riscv doesn't support compiling ASTType {:?}",
 				value
@@ -156,6 +164,28 @@ fn compile_ast_assignment(
 						imm: c as i32,
 					});
 					isntrs.push(Instruction::Sb {
+						src: Register::T5,
+						base: Register::Sp,
+						offset: var.offset as i32,
+					});
+				}
+				StaticValue::Int32(val) => {
+					isntrs.push(Instruction::Li {
+						dest: Register::T5,
+						value: val as u64,
+					});
+					isntrs.push(Instruction::Sw {
+						src: Register::T5,
+						base: Register::Sp,
+						offset: var.offset as i32,
+					});
+				}
+				StaticValue::Int64(val) => {
+					isntrs.push(Instruction::Li {
+						dest: Register::T5,
+						value: val as u64,
+					});
+					isntrs.push(Instruction::Sd {
 						src: Register::T5,
 						base: Register::Sp,
 						offset: var.offset as i32,
