@@ -11,6 +11,13 @@ use crate::compiler::riscv::register::Register;
 /// https://lf-riscv.atlassian.net/wiki/spaces/HOME/pages/16154769/RISC-V+Technical+Specifications
 #[derive(Debug)]
 pub enum Instruction {
+	/// 2.4.2. Integer Register-Register Operations
+	/// Add the value in src1 to src2, and store the result in dst. Any overflow is thrown away.
+	Add {
+		dst: Register,
+		src1: Register,
+		src2: Register,
+	},
 	/// 2.4.1. Integer Register-Immediate Instructions
 	/// adds the sign-extended 12-bit immediate to register
 	/// ex: addi sp, sp, -32
@@ -85,6 +92,7 @@ pub enum Instruction {
 impl Display for Instruction {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
+			Instruction::Add { dst, src1, src2 } => write!(f, "add {dst}, {src1}, {src2}")?,
 			Instruction::Addi { dst, src, imm } => write!(f, "addi {dst}, {src}, {imm}")?,
 			Instruction::Call(label) => write!(f, "call {label}")?,
 			Instruction::La { dest, label } => write!(f, "la {dest}, {label}")?,
@@ -95,7 +103,7 @@ impl Display for Instruction {
 			Instruction::Ret => write!(f, "ret")?,
 			Instruction::Sb { src, base, offset } => write!(f, "sb {src}, {offset}({base})")?,
 			Instruction::Sd { src, base, offset } => write!(f, "sd {src}, {offset}({base})")?,
-			Instruction::Sw { src, base, offset } => write!(f, "s {src}, {offset}({base})")?,
+			Instruction::Sw { src, base, offset } => write!(f, "sw {src}, {offset}({base})")?,
 		}
 		Ok(())
 	}

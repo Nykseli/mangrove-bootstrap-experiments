@@ -4,7 +4,7 @@ use std::fmt::Display;
 ///
 /// The RV32I base integer ISA includes 32 registers, named x0 to x31.
 /// https://asm-docs.microagi.org/risc-v/riscv-asm.html
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[allow(unused)]
 pub enum Register {
 	/// x0, hardwired to 0, ignores writes

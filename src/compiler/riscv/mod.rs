@@ -146,6 +146,119 @@ impl CompileCtx {
 			.ok_or(format!("Variable not {:?} found in current scope", var))
 	}
 }
+fn compile_ast_assign_arg(
+	ctx: &mut CompileCtx,
+	arg: &ASTAssignArg,
+	destination: Register,
+	target: Option<&CompiledVariable>,
+) -> Result<Vec<Instruction>, String> {
+	let mut instrs = Vec::new();
+	match arg {
+		ASTAssignArg::Static(aststatic_assign) => match aststatic_assign.value {
+			StaticValue::Char(c) => {
+				instrs.push(Instruction::Addi {
+					dst: destination,
+					src: Register::Zero,
+					imm: c as i32,
+				});
+				if let Some(var) = target {
+					instrs.push(Instruction::Sb {
+						src: destination,
+						base: Register::Sp,
+						offset: var.offset as i32,
+					});
+				}
+			}
+			StaticValue::Int32(val) => {
+				instrs.push(Instruction::Li {
+					dest: destination,
+					value: val as u64,
+				});
+				if let Some(var) = target {
+					instrs.push(Instruction::Sw {
+						src: destination,
+						base: Register::Sp,
+						offset: var.offset as i32,
+					});
+				}
+			}
+			StaticValue::Int64(val) => {
+				instrs.push(Instruction::Li {
+					dest: destination,
+					value: val as u64,
+				});
+				if let Some(var) = target {
+					instrs.push(Instruction::Sd {
+						src: destination,
+						base: Register::Sp,
+						offset: var.offset as i32,
+					});
+				}
+			}
+			_ => {
+				return Err(format!(
+					"Following StaticValue cannot be compiled\n{:#?}",
+					aststatic_assign
+				))
+			}
+		},
+		ASTAssignArg::Ident(astassign_ident) => {
+			let ident = ctx.compiled_variable(&astassign_ident.ident)?;
+			match ident.type_ {
+				CompiledType::Char => {
+					instrs.push(Instruction::Lb {
+						dest: destination,
+						base: Register::Sp,
+						offset: ident.offset as i32,
+					});
+					if let Some(var) = target {
+						instrs.push(Instruction::Sb {
+							src: destination,
+							base: Register::Sp,
+							offset: var.offset as i32,
+						});
+					}
+				}
+				CompiledType::Int32 => {
+					instrs.push(Instruction::Lw {
+						dest: destination,
+						base: Register::Sp,
+						offset: ident.offset as i32,
+					});
+					if let Some(var) = target {
+						instrs.push(Instruction::Sw {
+							src: destination,
+							base: Register::Sp,
+							offset: var.offset as i32,
+						});
+					}
+				}
+				CompiledType::Int64 => {
+					instrs.push(Instruction::Ld {
+						dest: destination,
+						base: Register::Sp,
+						offset: ident.offset as i32,
+					});
+					if let Some(var) = target {
+						instrs.push(Instruction::Sd {
+							src: destination,
+							base: Register::Sp,
+							offset: var.offset as i32,
+						});
+					}
+				}
+			}
+		}
+		_ => {
+			return Err(format!(
+				"Following assign arg cannot be compiled\n{:#?}",
+				arg
+			))
+		}
+	}
+
+	Ok(instrs)
+}
 
 fn compile_ast_assignment(
 	ctx: &mut CompileCtx,
@@ -205,6 +318,36 @@ fn compile_ast_assignment(
 				))
 			}
 		},
+		ASTAssignmentExpr::Add(add) => {
+			// get the store instr first because rust gets complany about muts
+			let store_instr = match var.type_ {
+				CompiledType::Char => Instruction::Sb {
+					src: Register::T6,
+					base: Register::Sp,
+					offset: var.offset as i32,
+				},
+				CompiledType::Int32 => Instruction::Sw {
+					src: Register::T6,
+					base: Register::Sp,
+					offset: var.offset as i32,
+				},
+				CompiledType::Int64 => Instruction::Sd {
+					src: Register::T6,
+					base: Register::Sp,
+					offset: var.offset as i32,
+				},
+			};
+
+			isntrs.extend(compile_ast_assign_arg(ctx, &add.lhs, Register::T4, None)?);
+			isntrs.extend(compile_ast_assign_arg(ctx, &add.rhs, Register::T5, None)?);
+			isntrs.push(Instruction::Add {
+				dst: Register::T6,
+				src1: Register::T4,
+				src2: Register::T5,
+			});
+			isntrs.push(store_instr);
+		}
+
 		_ => {
 			return Err(format!(
 				"Following ASTAssignmentExpr cannot be compiled\n{:#?}",
