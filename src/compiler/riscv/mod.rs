@@ -118,6 +118,8 @@ impl CompileCtx {
 		}
 
 		let stack_size: u32 = vars.iter().fold(0, |acc, var| acc + var.type_.size());
+		// make sure stack always has 8 bytes for return address
+		let stack_size = stack_size + 8;
 		// stacksize needs to be dividable by 32 to keep the ABI consistent
 		// TODO: link docs for that
 		let stack_size = if stack_size < 32 {
