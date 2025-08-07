@@ -347,7 +347,28 @@ fn compile_ast_assignment(
 			});
 			isntrs.push(store_instr);
 		}
-
+		ASTAssignmentExpr::FunctionCall(fn_call) => {
+			// TODO: function args
+			isntrs.push(Instruction::Call(fn_call.name.clone()));
+			let store_instr = match var.type_ {
+				CompiledType::Char => Instruction::Sb {
+					src: Register::A0,
+					base: Register::Sp,
+					offset: var.offset as i32,
+				},
+				CompiledType::Int32 => Instruction::Sw {
+					src: Register::A0,
+					base: Register::Sp,
+					offset: var.offset as i32,
+				},
+				CompiledType::Int64 => Instruction::Sd {
+					src: Register::A0,
+					base: Register::Sp,
+					offset: var.offset as i32,
+				},
+			};
+			isntrs.push(store_instr);
+		}
 		_ => {
 			return Err(format!(
 				"Following ASTAssignmentExpr cannot be compiled\n{:#?}",
