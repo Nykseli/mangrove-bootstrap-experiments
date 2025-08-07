@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::{
 	ast::{
 		ASTAssignArg, ASTAssignment, ASTAssignmentExpr, ASTBlockStatement, ASTFunction,
-		ASTFunctionCallArg, ASTType, ASTVariable, StaticValue,
+		ASTFunctionCallArg, ASTReturn, ASTType, ASTVariable, StaticValue,
 	},
 	compiler::{
 		common::Compiler,
@@ -359,6 +359,39 @@ fn compile_ast_assignment(
 	Ok(isntrs)
 }
 
+fn compile_ast_return(ctx: &mut CompileCtx, ret: &ASTReturn) -> Result<Vec<Instruction>, String> {
+	let ret = if let Some(ret) = &ret.expr {
+		ret
+	} else {
+		return Ok(Vec::new());
+	};
+
+	let mut instrs = Vec::new();
+
+	match ret {
+		ASTAssignmentExpr::Arg(astassign) => {
+			instrs.extend(compile_ast_assign_arg(ctx, &astassign, Register::A0, None)?);
+		}
+		ASTAssignmentExpr::Add(add) => {
+			instrs.extend(compile_ast_assign_arg(ctx, &add.lhs, Register::T4, None)?);
+			instrs.extend(compile_ast_assign_arg(ctx, &add.rhs, Register::T5, None)?);
+			instrs.push(Instruction::Add {
+				dst: Register::A0,
+				src1: Register::T4,
+				src2: Register::T5,
+			});
+		}
+		_ => {
+			return Err(format!(
+				"Following ASTAssignmentExpr cannot be compiled\n{:#?}",
+				ret
+			))
+		}
+	}
+
+	Ok(instrs)
+}
+
 fn compile_function(ctx: &mut CompileCtx, function: &ASTFunction) -> CompiledFn {
 	let stack_size = ctx.set_block_variables(&function.body.variables).unwrap();
 	let mut compiledfn = CompiledFn {
@@ -370,7 +403,6 @@ fn compile_function(ctx: &mut CompileCtx, function: &ASTFunction) -> CompiledFn 
 	let mut body_isntr: Vec<Instruction> = Vec::new();
 	for statement in &function.body.statements {
 		match statement {
-			// TODO: handle internal function special cases
 			ASTBlockStatement::FunctionCall(astfunction_call) => {
 				if astfunction_call.name.starts_with("__") {
 					let isntrs = compile_internal_function_call(ctx, astfunction_call).unwrap();
@@ -382,6 +414,10 @@ fn compile_function(ctx: &mut CompileCtx, function: &ASTFunction) -> CompiledFn 
 			}
 			ASTBlockStatement::Assignment(assignment) => {
 				let instrs = compile_ast_assignment(ctx, assignment).unwrap();
+				body_isntr.extend(instrs);
+			}
+			ASTBlockStatement::Return(ret) => {
+				let instrs = compile_ast_return(ctx, ret).unwrap();
 				body_isntr.extend(instrs);
 			}
 			_ => todo!("TODO: function statement\n{:#?}", statement),
